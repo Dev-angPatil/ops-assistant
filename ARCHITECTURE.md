@@ -9,30 +9,32 @@ graph TD
     User([Sysadmin / DevOps Engineer]) -->|Natural Language Query| CLI[Interactive CLI / TUI / REST Layer]
     CLI --> Agent[OpsAssistantAgent Core Loop]
 
-    subgraph "Kernel Telemetry & Inspection Subsystem"
-        Agent --> LogCollector[JournalCollector: journald JSON, syslog, dmesg, /var/log/*]
-        Agent --> MetricCollector[ProcCollector: CPU ticks, RAM/Swap, Inodes, Zombies]
-        Agent --> PSICollector[PSICollector: Kernel /proc/pressure CPU, Memory, IO]
-        Agent --> ServiceInspector[SystemdCollector: Unit states & failed units]
-        Agent --> DistroDetector[DistroDetector: /etc/os-release & Init stack]
+    subgraph "ReAct Autonomous Agent & Tools Subsystem"
+        Agent --> ToolsRegistry[AgentToolsRegistry: Typed Linux Inspection Tools]
+        ToolsRegistry --> ToolHealth[inspect_system_health: Procfs CPU/RAM & Kernel PSI]
+        ToolsRegistry --> ToolService[inspect_service: systemd / OpenRC active state & unit logs]
+        ToolsRegistry --> ToolPorts[inspect_listening_ports: ss -tulpn socket collisions]
+        ToolsRegistry --> ToolLogs[query_system_logs: journalctl, dmesg & /var/log/*]
+        ToolsRegistry --> ToolDisk[inspect_disk_and_inodes: df -h & df -i]
+        ToolsRegistry --> ToolProc[inspect_processes: ps aux & zombie detection]
+        ToolsRegistry --> ToolCmd[run_read_only_command: Verified safe diagnostics]
+        ToolsRegistry --> ToolXAI[explain_command_flags: XAI flag breakdown]
+        ToolsRegistry --> ToolSafety[verify_command_safety: AST risk & rollback]
     end
 
-    subgraph "Neuro-Symbolic & Causal Reasoning Engine"
-        LogCollector --> CausalityDAG[Dynamic System Causality DAG Engine]
-        PSICollector --> CausalityDAG
-        CausalityDAG --> RootCause[Topological Root Cause Isolator: InDegree=0]
-        RootCause --> DualEngine{Dual-Engine Orchestrator}
-        DualEngine -->|Offline Fast Path| TaxonomyKB[16-Class Failure Taxonomy Engine]
-        DualEngine -->|Distro Knowledge Base| DistroDB[Embedded SQLite Distro DB]
-        DualEngine -->|Pluggable LLM Path| LocalLLM[Ollama / Local GGUF Model]
-        TaxonomyKB --> XAI[XAI Rationale & Flag Explainer]
-        DistroDB --> XAI
-        LocalLLM --> XAI
+    subgraph "Reasoning & LLM Synthesis Engine"
+        ToolsRegistry --> EvidenceObs[Structured Tool Observation Context]
+        EvidenceObs --> PluggableLLM{Pluggable Provider Loop}
+        PluggableLLM -->|Cloud LLM| GeminiProv[GeminiProvider: Multi-turn tool reasoning]
+        PluggableLLM -->|Local LLM| LocalProv[LlamaCppProvider / OllamaProvider]
+        PluggableLLM -->|Deterministic Fast Path| DetProv[Deterministic Grounded Triage]
+        PluggableLLM --> CausalityDAG[Dynamic Causality DAG Engine]
+        CausalityDAG --> XAI[XAI Rationale & Flag Explainer]
         XAI --> Rollback[Automatic Rollback & Undo Synthesizer]
     end
 
-    subgraph "Ephemeral Namespace Sandbox Probe"
-        Rollback --> SandboxProbe[Ephemeral Namespace CoW Validator: unshare + OverlayFS]
+    subgraph "Ephemeral Rootless Namespace Sandbox Probe"
+        Rollback --> SandboxProbe[Ephemeral Rootless Namespace Probe: unshare User+Mount+PID]
         SandboxProbe --> CmdValidator[AST Command Safety & Permission Verifier]
         CmdValidator --> UserConfirm{User Interactive Confirmation}
         UserConfirm -->|Dry Run| DryRunEngine[Simulation Preview Engine]
@@ -66,16 +68,16 @@ graph TD
   - Captures kernel ring buffer error logs via `dmesg -T`.
   - Scrapes flat-file logs in `/var/log/{syslog,dpkg.log,auth.log,nginx/error.log}`.
 - **`SystemdCollector`**: DBus unit state scanner detecting failed services (`--failed`).
-- **`DistroDetector`**: Dynamically identifies distribution family, init system, package manager, and firewall.
+- **`DistroDetector`**: Dynamically identifies distribution family (Debian, RHEL, Arch, Alpine, openSUSE, BOSS Linux), init system, package manager, and firewall.
 
 ### 3. **Dynamic System Causality DAG Engine (`ops_assistant.explainer.causality_dag`)**
 - Ingests temporal event sequences and constructs a Directed Acyclic Graph $G = (V, E)$.
 - Evaluates transition rules (e.g. `KERNEL_OOM` $\rightarrow$ `PROCESS_KILLED` $\rightarrow$ `SOCKET_CLOSED` $\rightarrow$ `UPSTREAM_502`).
 - Identifies true root cause nodes with $\text{InDegree}(u) = 0$, filtering out downstream cascade noise.
 
-### 4. **Ephemeral Namespace Sandbox Validation Probe (`ops_assistant.tools.sandbox_probe`)**
-- Dry-runs candidate remediation commands in an unprivileged Linux namespace (`unshare --mount --uts --ipc --net --pid --fork`) backed by CoW OverlayFS.
-- Confirms configuration syntax and execution validity before presenting proposed commands to the operator.
+### 4. **Ephemeral Rootless Namespace Sandbox Validation Probe (`ops_assistant.tools.sandbox_probe`)**
+- Dry-runs candidate remediation commands in an isolated rootless Linux namespace (`unshare -r -m -p -f --mount-proc`) inside an ephemeral scratch directory.
+- Verifies POSIX bash syntax, execution safety, and side-effect boundaries prior to presenting proposed commands to the operator.
 
 ### 5. **Diagnostic Reasoning Agent (`ops_assistant.agent`)**
 - **Dual-Engine Architecture**:

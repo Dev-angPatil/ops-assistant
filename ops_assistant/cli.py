@@ -2315,7 +2315,10 @@ def main():
     if provider_setting == "deterministic":
         provider_setting = None
 
-    agent = OpsAssistantAgent(llm_provider=provider_setting, model_path=args.model_path)
+    from ops_assistant.agent.session import ConversationSession
+    session = ConversationSession()
+
+    agent = OpsAssistantAgent(llm_provider=provider_setting, model_path=args.model_path, session=session)
     executor = SafeExecutor()
     validator = CommandSafetyValidator()
 

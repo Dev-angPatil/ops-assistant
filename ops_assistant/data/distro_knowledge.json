@@ -6,8 +6,8 @@
       "family_id": "debian",
       "display_name": "Debian / Ubuntu Family",
       "identification": {
-        "os_release_ids": ["debian", "ubuntu", "linuxmint", "pop", "kali", "raspbian", "elementary", "zorin"],
-        "os_release_id_like": ["debian", "ubuntu"],
+        "os_release_ids": ["debian", "ubuntu", "linuxmint", "pop", "kali", "raspbian", "elementary", "zorin", "boss", "bossos"],
+        "os_release_id_like": ["debian", "ubuntu", "boss"],
         "detection_file": "/etc/debian_version"
       },
       "init_system": "systemd",

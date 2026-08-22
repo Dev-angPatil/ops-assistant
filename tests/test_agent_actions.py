@@ -78,13 +78,25 @@ class TestAgentActions(unittest.TestCase):
         r2 = self.agent.execute_agent_action("dns lookup github.com", execute=False)
         self.assertEqual(r2["intent"], "network_dns")
 
-        r3 = self.agent.execute_agent_action("allow port 8080 in firewall", execute=False)
+        # Debian (ufw)
+        r3 = self.agent.execute_agent_action("allow port 8080 in firewall", execute=False, distro_override="debian")
         self.assertEqual(r3["intent"], "firewall_allow")
         self.assertEqual(r3["rollback_command"], "sudo ufw delete allow 8080/tcp")
 
-        r4 = self.agent.execute_agent_action("deny port 22 in firewall", execute=False)
+        r4 = self.agent.execute_agent_action("deny port 22 in firewall", execute=False, distro_override="debian")
         self.assertEqual(r4["intent"], "firewall_deny")
         self.assertEqual(r4["rollback_command"], "sudo ufw delete deny 22/tcp")
+
+        # Arch (nft)
+        r5 = self.agent.execute_agent_action("allow port 443 in firewall", execute=False, distro_override="arch")
+        self.assertEqual(r5["intent"], "firewall_allow")
+        self.assertIn("nft", r5["command"])
+        self.assertEqual(r5["rollback_command"], "sudo nft delete rule inet filter input tcp dport 443")
+
+        # Alpine (awall)
+        r6 = self.agent.execute_agent_action("allow port 80 in firewall", execute=False, distro_override="alpine")
+        self.assertEqual(r6["intent"], "firewall_allow")
+        self.assertEqual(r6["command"], "sudo awall allow-port 80")
 
     def test_security_actions(self):
         r1 = self.agent.execute_agent_action("run security audit", execute=False)

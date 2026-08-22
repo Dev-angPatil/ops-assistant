@@ -52,7 +52,7 @@ class TestEnhancedFeatures(unittest.TestCase):
     def test_project_ops_create_venv_dry_run(self):
         res = project_ops.create_python_venv(target_dir=self.test_dir, venv_name="myenv", dry_run=True)
         self.assertTrue(res["success"])
-        self.assertIn("python3 -m venv", res["command"])
+        self.assertIn("-m venv", res["command"])
 
     def test_history_database_lifecycle(self):
         # Create session

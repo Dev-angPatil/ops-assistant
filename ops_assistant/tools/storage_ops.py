@@ -349,3 +349,12 @@ def clean_logs_and_temp(dry_run: bool = True) -> Dict[str, Any]:
         "message": f"Successfully cleaned {cleaned_count} items, freed {plan.get('freed_estimate', '0 B')}" if not dry_run else f"Found {plan.get('count', 0)} cleanable items (~{plan.get('freed_estimate', '0 B')} reclaimable)"
     }
 
+
+organize_folder = organise_directory
+organise_folder = organise_directory
+organize_directory = organise_directory
+analyze_storage = analyse_disk
+analyse_storage = analyse_disk
+clean_system = clean_logs_and_temp
+
+

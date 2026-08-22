@@ -39,6 +39,7 @@ class DistroDetector:
     """Detects the host Linux distribution and resolves its canonical family."""
 
     KNOWN_FALLBACKS = [
+        ("/etc/boss-release", "debian"),
         ("/etc/debian_version", "debian"),
         ("/etc/redhat-release", "rhel"),
         ("/etc/arch-release", "arch"),
@@ -74,7 +75,15 @@ class DistroDetector:
     def detect(self, override_family: Optional[str] = None) -> DistroInfo:
         """Detects current host distribution and matches against DistroKnowledgeBase with caching."""
         if override_family:
-            return self._build_from_family_id(override_family.lower(), is_simulated=True)
+            fam = override_family.lower()
+            if fam in ("boss", "bossos"):
+                return self._build_from_family_id(
+                    "debian",
+                    distro_id="boss",
+                    distro_name="BOSS Linux (Bharat Operating System Solutions)",
+                    is_simulated=True
+                )
+            return self._build_from_family_id(fam, is_simulated=True)
 
         if self._cached_host_distro is not None:
             return self._cached_host_distro

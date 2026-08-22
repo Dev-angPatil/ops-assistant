@@ -50,9 +50,9 @@
                └───────────────┬───────────────┘
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│            Ephemeral Namespace & SafeExecutor Sandbox       │
-│    • unshare + OverlayFS CoW    • Destructive Pattern Gate  │
-│    • Command Syntax Dry-Run     • Execution Profiler (<1ms) │
+│       Ephemeral Rootless Namespace & SafeExecutor Sandbox   │
+│    • unshare User+Mount+PID NS  • Destructive Pattern Gate  │
+│    • POSIX Syntax Validation    • Execution Profiler (<1ms) │
 │    • Rollback Invocation Loop   • Multi-Distro Command Adapt│
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -90,8 +90,8 @@
 ---
 
 ### Slide 6: Safety Sandbox & Ephemeral Namespace Validation
-- **Ephemeral Namespace CoW Probe**:
-  - Dry-runs candidate commands in rootless isolated namespaces (`unshare --mount --uts --ipc --net --pid --fork`) backed by CoW OverlayFS before presenting them to the operator.
+- **Ephemeral Rootless Namespace Probe**:
+  - Dry-runs candidate commands in rootless isolated User+Mount+PID namespaces (`unshare -r -m -p -f --mount-proc`) inside an ephemeral scratch directory with POSIX syntax validation fallback before presenting them to the operator.
 - **4-Tier Safety Classification**:
   - `READ_ONLY` (Risk: 0.05): `free -h`, `df -h`, `ss -tulpn`, `ps aux`, `journalctl`.
   - `MODIFYING` (Risk: 0.35): `systemctl restart`, `touch`, `mkdir`, `certbot renew`.
@@ -108,8 +108,8 @@
 | **Taxonomy Accuracy** | 88.5% (Hallucinations) | **100.0% (16/16 Passed)** | **+11.5% Grounded** |
 | **Token Cost / Query** | $0.003 / query | **$0.00 (Air-Gapped)** | **100% Free** |
 | **Offline Privacy** | 0% (Cloud Dependent) | **100% Air-Gapped** | **Complete Compliance** |
-| **Test Suite Coverage** | N/A | **47/47 Unit Tests Passed** | **Production Grade** |
-| **Distro Portability** | Single Distro | **5 Major Distro Families** | **Universal Linux Support** |
+| **Test Suite Coverage** | N/A | **199/199 Unit Tests Passed** | **Production Grade** |
+| **Distro Portability** | Single Distro | **6 Distro Families (incl. BOSS)** | **Universal Linux Support** |
 
 ---
 
@@ -118,7 +118,7 @@
   1. Real-time Linux kernel telemetry and PSI pressure inspection (`--inspect-health`).
   2. Service Port Conflict (`EADDRINUSE`) resolution with Dynamic Causality DAG.
   3. Kernel OOM Killer (`oom-killer`) diagnosis with PID isolation.
-  4. Multi-distro command adaptation (Debian `apt` vs. Arch `pacman` vs. Alpine `apk/OpenRC` vs. RHEL `dnf/firewalld`).
+  4. Multi-distro command adaptation (Debian `apt` vs. Arch `pacman` vs. Alpine `apk/OpenRC` vs. RHEL `dnf/firewalld` vs. BOSS Linux `apt/ufw`).
   5. Destructive command prevention (`rm -rf /` hard-blocked by Safety Gate).
 - **Roadmap & Expansion**:
   - eBPF kernel tracepoint hooks for sub-millisecond socket collision detection.

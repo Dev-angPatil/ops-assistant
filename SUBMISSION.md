@@ -11,7 +11,7 @@
 ---
 
 ### Field 1: Project Title
-**AI-Powered Linux Operations Assistant (`ops-assistant`): An Explainable, Air-Gapped Sysadmin Copilot with Dynamic Causality DAGs, Kernel PSI Telemetry, Multi-Distro Knowledge Engine, and Ephemeral Namespace Sandboxed Remediation**
+**AI-Powered Linux Operations Assistant (`ops-assistant`): An Explainable, Air-Gapped Sysadmin Copilot with Dynamic Causality DAGs, Kernel PSI Telemetry, Multi-Distro Knowledge Engine, and Ephemeral Rootless Namespace Sandboxed Remediation**
 
 ---
 
@@ -21,9 +21,9 @@ To develop an autonomous, explainable AI-native operations copilot for Linux ser
 2. Automatically correlates multi-source kernel and userspace telemetry (`procfs`, `sysfs`, `journald`, `dmesg`, `/var/log/*`, `/proc/pressure/*` PSI metrics, `systemd` cgroups, and `OpenRC`).
 3. Builds Dynamic System Causality DAGs to isolate true root causes with topological in-degrees ($\text{InDegree}=0$), suppressing symptom cascade noise.
 4. Performs hybrid deterministic and agentic root-cause isolation across 16+ core Linux failure taxonomy classes with zero external cloud dependencies.
-5. Dynamically adapts suggested commands, firewall rules, and package manager workflows across Debian/Ubuntu, RHEL/Rocky/Fedora, Arch Linux, Alpine Linux, and openSUSE.
+5. Dynamically adapts suggested commands, firewall rules, and package manager workflows across Debian/Ubuntu, RHEL/Rocky/Fedora, Arch Linux, Alpine Linux, openSUSE, and BOSS Linux.
 6. Delivers step-by-step Explainable AI (XAI) command deconstructions, flag-by-flag purpose explanations, risk scoring (0.0 to 1.0), and automatic rollback/undo plan generation.
-7. Validates remediation commands inside ephemeral `unshare`+OverlayFS namespace sandbox probes before presenting them to the operator.
+7. Validates remediation commands inside ephemeral `unshare` (User+Mount+PID) rootless namespace sandbox probes with POSIX syntax validation fallback before presenting them to the operator.
 
 ---
 
@@ -44,11 +44,11 @@ Relative to existing sysadmin utilities and generic cloud LLM chatbots, `ops-ass
 2. **Kernel Pressure Stall Information (PSI) Ingestion**:
    Directly parses `/proc/pressure/{cpu,memory,io}` 10s/60s/300s stall averages, diagnosing memory pressure and I/O starvation prior to kernel panics.
 
-3. **Ephemeral Namespace Sandbox Validation Probe**:
-   Dry-runs candidate remediation commands in an isolated Linux User+Mount namespace (`unshare` + OverlayFS) to empirically test command syntax and execution safety before proposing them.
+3. **Ephemeral Rootless Namespace Sandbox Validation Probe**:
+   Dry-runs candidate remediation commands in an isolated Linux User+Mount+PID namespace (`unshare -r -m -p -f --mount-proc`) with ephemeral scratch isolation and POSIX grammar parsing to empirically test command syntax and execution safety before proposing them.
 
 4. **Multi-Distro Relational Knowledge Base**:
-   Backed by an embedded SQLite knowledge engine that dynamically translates commands across Debian (`apt`/`systemd`/`ufw`), RHEL (`dnf`/`systemd`/`firewalld`), Arch (`pacman`/`systemd`/`nftables`), Alpine (`apk`/`OpenRC`), and openSUSE (`zypper`/`firewalld`).
+   Backed by an embedded SQLite knowledge engine that dynamically translates commands across Debian (`apt`/`systemd`/`ufw`), RHEL (`dnf`/`systemd`/`firewalld`), Arch (`pacman`/`systemd`/`nftables`), Alpine (`apk`/`OpenRC`), openSUSE (`zypper`/`firewalld`), and BOSS Linux.
 
 5. **Deterministic-First Zero-Overhead Diagnostic Pipeline**:
    Achieves **<50ms diagnosis latency** (45.2ms measured average) with **100% reproducible accuracy** across standard failure taxonomies while running completely air-gapped on bare-metal and edge devices.
@@ -111,7 +111,7 @@ Relative to existing sysadmin utilities and generic cloud LLM chatbots, `ops-ass
   - Embedded SQLite database storing distribution profiles, commands, package locks, and error signatures.
 
 - **Ephemeral Namespace Sandbox Probe (`ops_assistant.tools.sandbox_probe`)**:
-  - Dry-runs candidate commands in rootless isolated namespaces to verify execution safety.
+  - Dry-runs candidate commands in rootless isolated namespaces (`unshare -r -m -p -f --mount-proc`) with fallback to POSIX syntax validation.
 
 - **Safety Validator & SafeExecutor (`ops_assistant.tools.*`)**:
   - Evaluates risk score (0.0 to 1.0) across 4 safety tiers (`READ_ONLY`, `MODIFYING`, `HIGH_RISK`, `DESTRUCTIVE`).
@@ -130,7 +130,7 @@ graph TD
         Agent --> Causality[Dynamic System Causality DAG Engine]
         Causality --> Taxonomy[16-Class Failure Taxonomy KB]
         Agent --> DistroDB[Distro Knowledge Base SQLite]
-        Agent --> LLM[Optional Local LLM: Ollama / Qwen / Mistral]
+        Agent --> LLM[Optional Local LLM: Ollama / Qwen / Mistral / Gemini]
         Agent --> XAI[XAI Explainability & Rollback Generator]
     end
 
@@ -144,7 +144,7 @@ graph TD
     end
 
     subgraph Safety & Sandbox Layer
-        XAI --> Sandbox[Ephemeral Namespace CoW Sandbox Probe]
+        XAI --> Sandbox[Ephemeral Rootless Namespace Sandbox Probe]
         Sandbox --> Safety[AST Safety Validator & Risk Scorer]
         Safety --> Executor[SafeExecutor Sandbox]
         Executor -->|Dry Run / Exec| Kernel[(Linux Operating System)]
@@ -156,7 +156,7 @@ graph TD
 ### Field 7: Technical Description (Open-Source / In-House Model)
 - **Primary Reasoning Architecture**: In-house neuro-symbolic expert system featuring causal DAG builders, regex AST pattern tokenizers, kernel PSI parsers, and transparent flag-purpose lookup matrices.
 - **Pluggable Open-Source Model Integration**:
-  - Supports local open-weight models via Ollama or `llama.cpp` (e.g., `llama3:8b-instruct`, `mistral:7b-instruct`, `qwen2.5-coder:7b`).
+  - Supports local open-weight models via Ollama or `llama.cpp` (e.g., `llama3:8b-instruct`, `mistral:7b-instruct`, `qwen2.5-coder:7b`) and Google Gemini API.
   - Air-gapped deployment compatibility with zero mandatory external API dependencies.
 - **Python Standard Library Grounding**: Zero heavy dependencies required for core diagnostic functions; optional `rich` library for enhanced TUI rendering.
 
@@ -166,7 +166,7 @@ graph TD
 - **Repository URI**: `https://github.com/Dev-angPatil/01_LinuxOpsAssistant.git`
 - **Collaborator Access**: Added `ssm-hackathon` as Collaborator with write/read access.
 - **License**: Apache License 2.0 (`LICENSE` file included in repository root).
-- **Build & Execution**: Complete test suite of 41 unit and integration tests runs via `python3 -m unittest discover -s tests -v` with 100% pass rate.
+- **Build & Execution**: Complete test suite of 199 unit and integration tests runs via `pytest tests/ -v` with 100% pass rate (199 passed).
 
 ---
 
@@ -174,8 +174,8 @@ graph TD
 A 3-minute demonstration script showcasing:
 1. `ops-assistant --inspect-health` displaying instant Linux health, CPU/RAM, and Kernel PSI status.
 2. Troubleshooting an NGINX port conflict on port 80 with dynamic causality DAG diagram and root-cause analysis.
-3. Multi-distro translation adapting commands for Alpine OpenRC and RHEL firewalld.
-4. Ephemeral namespace sandbox dry-run verification of remediation commands.
+3. Multi-distro translation adapting commands for Alpine OpenRC, RHEL firewalld, Arch nftables, and BOSS Linux.
+4. Ephemeral rootless namespace sandbox dry-run verification of remediation commands.
 5. Destructive command prevention (`rm -rf /` blocked by Safety Gate).
 
 ---
@@ -200,7 +200,7 @@ A 3-minute demonstration script showcasing:
 - **Synthetic Multi-Service Linux Fault Corpora**:
   - Structured error traces from `systemd` unit crashes, `nginx` port binds, `postgresql` connection saturation, and kernel `oom-killer` dmesg logs.
 - **Log Corpora Sources**:
-  - Anonymized system logs from Ubuntu 22.04 LTS, Debian 12 (Bookworm), Fedora 39, Arch Linux, and Alpine Linux 3.19.
+  - Anonymized system logs from Ubuntu 22.04 LTS, Debian 12 (Bookworm), Fedora 39, Arch Linux, Alpine Linux 3.19, and BOSS Linux 9.0.
 - **Data Protection & Compliance**:
   - Full compliance with the **Digital Personal Data Protection (DPDP) Act, 2023**.
   - No PII, user passwords, private IP ranges, or user payload data is stored or transmitted externally.
@@ -209,8 +209,8 @@ A 3-minute demonstration script showcasing:
 
 ### Field 13: Innovation
 1. **Dynamic System Causality DAGs**: Isolates true root causes using topological in-degree analysis ($\text{InDegree}=0$), eliminating cascade confusion.
-2. **Ephemeral Namespace Sandbox Validation**: Tests fixes in isolated `unshare`+OverlayFS containers before presentation.
+2. **Ephemeral Rootless Namespace Sandbox Validation**: Tests candidate fixes in isolated `unshare` (User+Mount+PID) namespaces before presentation.
 3. **Kernel PSI Telemetry Integration**: Real-time detection of CPU, memory, and I/O pressure stalls prior to kernel panics.
-4. **Multi-Distro Knowledge Base**: Dynamic command synthesis for Debian, RHEL, Arch, Alpine, and openSUSE.
+4. **Multi-Distro Knowledge Base**: Dynamic command synthesis for Debian, RHEL, Arch, Alpine, openSUSE, and BOSS Linux.
 5. **Explainable AI (XAI) Flag Dissection**: Tokenizes and decomposes command flags into plain English across 35+ utilities.
 6. **Air-Gapped Privacy & Speed**: Operates completely offline with sub-50ms latency (45.2ms average).

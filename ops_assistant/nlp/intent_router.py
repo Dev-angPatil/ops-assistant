@@ -1304,24 +1304,43 @@ class IntentRouter:
 
     def _llm_classify(self, text: str) -> Optional[Intent]:
         """Ask the LLM to classify ambiguous input. Returns None on failure."""
+        if not self._llm:
+            return None
         intent_names = [t.value for t in IntentType if t not in (
             IntentType.UNKNOWN, IntentType.REMEDIATION_EXEC_N)]
         prompt = (
             "You are a Linux assistant intent classifier. "
             "Given the user input below, return ONLY a JSON object with two fields: "
-            "'intent' (one of the values below) and 'args' (dict of extracted arguments or {}).\n"
+            "'intent' (one of the valid values below) and 'args' (dict of extracted arguments or {}).\n"
             f"Valid intents: {', '.join(intent_names)}\n"
             f"User input: \"{text}\"\n"
             "Respond ONLY with valid JSON, no explanation."
         )
         try:
-            result = self._llm.generate_diagnosis(text, {"intent_classification": True, "prompt": prompt})
-            if result and "intent" in result:
-                intent_val = result["intent"]
-                args = result.get("args", {})
-                for t in IntentType:
-                    if t.value == intent_val:
-                        return Intent(type=t, args=args, raw=text, confidence=0.75)
+            if hasattr(self._llm, "generate_raw"):
+                raw = self._llm.generate_raw(prompt)
+                if raw:
+                    data = json.loads(raw) if isinstance(raw, str) else raw
+                    if isinstance(data, dict) and "intent" in data:
+                        for t in IntentType:
+                            if t.value == data["intent"]:
+                                return Intent(type=t, args=data.get("args", {}), raw=text, confidence=0.80)
+            if hasattr(self._llm, "_call_gemini_api"):
+                res = self._llm._call_gemini_api(prompt, response_json=True)
+                if res:
+                    data = json.loads(res)
+                    if isinstance(data, dict) and "intent" in data:
+                        for t in IntentType:
+                            if t.value == data["intent"]:
+                                return Intent(type=t, args=data.get("args", {}), raw=text, confidence=0.80)
+            if hasattr(self._llm, "generate_diagnosis"):
+                result = self._llm.generate_diagnosis(text, {"intent_classification": True, "prompt": prompt})
+                if result and "intent" in result:
+                    intent_val = result["intent"]
+                    args = result.get("args", {})
+                    for t in IntentType:
+                        if t.value == intent_val:
+                            return Intent(type=t, args=args, raw=text, confidence=0.75)
         except Exception:
             pass
         return None

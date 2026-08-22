@@ -239,3 +239,9 @@ def audit_security() -> Dict[str, Any]:
         "brute_force_audit": brute,
         "suid_audit": suid
     }
+
+
+run_security_scan = audit_security
+check_ssh_bruteforce = detect_ssh_bruteforce
+check_suid_binaries = audit_suid_binaries
+

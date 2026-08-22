@@ -2,7 +2,7 @@
 
 import re
 import shlex
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 from ops_assistant.models import (
     XAIExplanation, CommandProposal, CommandFlagExplanation, SafetyLevel
 )
