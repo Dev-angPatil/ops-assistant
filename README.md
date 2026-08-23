@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-199%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-200%20passed-brightgreen.svg)]()
 [![Latency](https://img.shields.io/badge/latency-%3C50ms-success.svg)]()
 [![Accuracy](https://img.shields.io/badge/accuracy-100%25-brightgreen.svg)]()
 [![Distro Support](https://img.shields.io/badge/distros-Debian%20%7C%20RHEL%20%7C%20Arch%20%7C%20Alpine%20%7C%20SUSE%20%7C%20BOSS-purple.svg)]()
@@ -102,25 +102,27 @@ ops-assistant --setup
 # 6. Launch Interactive Web GUI Dashboard
 ops-assistant --gui
 
-# 7. Run Automated Benchmark across 16 Failure Scenarios
-ops-assistant --benchmark
+# 7. Natural Language → Linux Command Synthesis with Safety Approval Gate
+ops-assistant "download zotero"
+ops-assistant "install nginx" --distro debian
+ops-assistant "create folder /tmp/myproject"
 
-# 8. Run Interactive Failure Demo Walkthrough
-ops-assistant --demo
+# 8. Run Automated Empirical Benchmark across 16 Failure Scenarios
+ops-assistant --benchmark
 ```
 
 ---
 
 ## 🧪 Comprehensive Test Suite
 
-Run the full automated test suite containing 199 unit and integration tests across 29 test modules:
+Run the full automated test suite containing 200 unit and integration tests across 29 test modules:
 
 ```bash
 pytest tests/ -v
 ```
 
 ```text
-============================= 199 passed in 22.49s =============================
+============================= 200 passed in 33.24s =============================
 OK (100% Pass Rate)
 ```
 
@@ -194,7 +196,7 @@ OK (100% Pass Rate)
 │   └── model_manager/                     # Local Offline Model Management
 │       └── downloader.py                  # Offline GGUF edge model downloader & verifier
 │
-└── tests/                                 # 29 Test Modules, 199 Tests (100% Pass Rate)
+└── tests/                                 # 29 Test Modules, 200 Tests (100% Pass Rate)
     ├── __init__.py
     ├── test_agent.py                      # 16 taxonomy scenarios, XAI generation & report serialization
     ├── test_causality_dag.py              # Multi-event causal cascades & InDegree=0 root isolation

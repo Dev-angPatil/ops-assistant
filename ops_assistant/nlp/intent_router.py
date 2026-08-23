@@ -828,28 +828,28 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     # Packages
     # -----------------------------------------------------------------------
     (IntentType.PACKAGE_INSTALL, [
-        (r"\b(install|add) (the )?package (?P<pkg>[\w\-\.\+]+)\b", _extract_package),
-        (r"\binstall (?P<pkg>[\w\-\.\+]+)\b", _extract_package),
-        (r"\bdownload package (?P<pkg>[\w\-\.\+]+)\b", _extract_package),
-        (r"\b(apt|yum|dnf|pacman|apk)\s+(install|add)\s+(?P<pkg>[\w\-\.\+]+)\b", _extract_package),
+        (r"\b(?:install|download|get|fetch|add|setup)\s+(?:the\s+)?(?:software\s+|package\s+|app\s+|application\s+|tool\s+)?(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
+        (r"\b(?:install|download|get|fetch|add)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
+        (r"\b(?:sudo\s+)?(?:apt|apt-get|yum|dnf|pacman|apk|zypper)\s+(?:install|add|-S)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
     ]),
 
     (IntentType.PACKAGE_REMOVE, [
-        (r"\b(remove|uninstall|purge) (the )?package (?P<pkg>[\w\-\.\+]+)\b", _extract_package),
-        (r"\b(uninstall|purge) (?P<pkg>[\w\-\.\+]+)\b", _extract_package),
-        (r"\b(apt|yum|dnf|pacman|apk)\s+(remove|purge|uninstall)\s+(?P<pkg>[\w\-\.\+]+)\b", _extract_package),
+        (r"\b(?:remove|uninstall|purge|delete)\s+(?:the\s+)?(?:software\s+|package\s+|app\s+|application\s+|tool\s+)?(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
+        (r"\b(?:uninstall|purge|remove)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
+        (r"\b(?:sudo\s+)?(?:apt|apt-get|yum|dnf|pacman|apk|zypper)\s+(?:remove|purge|uninstall|-R|-Rns|del)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
     ]),
 
     (IntentType.PACKAGE_UPDATE, [
-        (r"\b(update|upgrade) (the |all |)packages?\b", None),
-        (r"\b(update|upgrade) (the |)system\b", None),
-        (r"\b(apt|yum|dnf|pacman|apk)\s+(update|upgrade)\b", None),
-        (r"\b(full|system|package) (upgrade|update)\b", None),
+        (r"\b(?:update|upgrade)\s+(?:the\s+|all\s+)?packages?\b", None),
+        (r"\b(?:update|upgrade)\s+(?:the\s+)?system\b", None),
+        (r"\b(?:sudo\s+)?(?:apt|apt-get|yum|dnf|pacman|apk|zypper)\s+(?:update|upgrade|-Syu)\b", None),
+        (r"\b(?:full|system|package)\s+(?:upgrade|update)\b", None),
     ]),
 
     (IntentType.PACKAGE_SEARCH, [
-        (r"\b(search|find|look for) package (?P<pkg>[\w\-\.\+]+)\b", _extract_package),
-        (r"\bis (?P<pkg>[\w\-\.\+]+) (a package|available|installed)\b", _extract_package),
+        (r"\b(?:search|find|look for)\s+(?:the\s+)?(?:package|software|app)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
+        (r"\bis\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\s+(?:a package|available|installed)\b", _extract_package),
+        (r"\b(?:sudo\s+)?(?:apt|apt-cache|yum|dnf|pacman|apk|zypper)\s+(?:search|-Ss)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
     ]),
 
     # -----------------------------------------------------------------------

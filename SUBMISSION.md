@@ -166,17 +166,18 @@ graph TD
 - **Repository URI**: `https://github.com/Dev-angPatil/01_LinuxOpsAssistant.git`
 - **Collaborator Access**: Added `ssm-hackathon` as Collaborator with write/read access.
 - **License**: Apache License 2.0 (`LICENSE` file included in repository root).
-- **Build & Execution**: Complete test suite of 199 unit and integration tests runs via `pytest tests/ -v` with 100% pass rate (199 passed).
+- **Build & Execution**: Complete test suite of 200 unit and integration tests runs via `pytest tests/ -v` with 100% pass rate (200 passed).
 
 ---
 
-### Field 9: Demo Video (Optional)
-A 3-minute demonstration script showcasing:
+### Field 9: Demo Video / Screenshots Link
+- **Walkthrough Video Outline**:
 1. `ops-assistant --inspect-health` displaying instant Linux health, CPU/RAM, and Kernel PSI status.
-2. Troubleshooting an NGINX port conflict on port 80 with dynamic causality DAG diagram and root-cause analysis.
-3. Multi-distro translation adapting commands for Alpine OpenRC, RHEL firewalld, Arch nftables, and BOSS Linux.
-4. Ephemeral rootless namespace sandbox dry-run verification of remediation commands.
-5. Destructive command prevention (`rm -rf /` blocked by Safety Gate).
+2. Natural Language to Linux Command Copilot: translating `ops-assistant "download zotero"` into `sudo pacman -S --noconfirm zotero` with flag breakdown and interactive approval gate.
+3. Troubleshooting an NGINX port conflict on port 80 with dynamic causality DAG diagram and root-cause analysis.
+4. Multi-distro translation adapting commands for Alpine OpenRC, RHEL firewalld, Arch nftables, and BOSS Linux.
+5. Ephemeral rootless namespace sandbox dry-run verification of remediation commands.
+6. Destructive command prevention (`rm -rf /` blocked by Safety Gate).
 
 ---
 
@@ -184,7 +185,7 @@ A 3-minute demonstration script showcasing:
 - **Standalone CLI Execution**:
   ```bash
   python3 -m ops_assistant.cli --benchmark
-  python3 -m ops_assistant.cli --demo
+  python3 -m ops_assistant.cli "download zotero"
   python3 -m ops_assistant.cli "Why is NGINX failing to start?"
   ```
 - **Portable Distribution**: Packaged as standard Python wheel and executable PyInstaller binary.

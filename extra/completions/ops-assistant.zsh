@@ -46,8 +46,7 @@ _ops_assistant() {
         '--proactive-audit[Run proactive autonomous health audit]' \
         '--docker-status[List Docker containers and port conflicts]' \
         '--security-audit[Run consolidated security and hardening audit]' \
-        '(-s --safety-check)'{-s,--safety-check}'[AST safety analysis on a command]:command:_values' \
-        '--demo[Run interactive demo across representative scenarios]' \
+        '(-y --yes)'{-y,--yes}'[Automatically approve and execute proposed operations without prompting]' \
         '--benchmark[Run empirical performance benchmark]' \
         '(-i --interactive)'{-i,--interactive}'[Enable interactive command execution prompt]' \
         '--export-json[Export diagnostic report to JSON file]:file:_files -g "*.json"' \

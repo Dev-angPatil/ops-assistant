@@ -28,7 +28,7 @@ Deliver a fully functional, explainable, and production-ready CLI/TUI assistant 
 - [x] Create `db/distro_db.py` embedded SQLite knowledge base supporting Debian/Ubuntu, RHEL/Rocky, Arch, Alpine, and openSUSE.
 - [x] Implement `tools/sandbox_probe.py` for ephemeral User+Mount namespace (`unshare` + OverlayFS) dry-runs.
 - [x] Implement `tools/safety.py` and `tools/executor.py` with 4-tier risk tagging, catastrophic pattern blocking, and dry-run execution.
-- [x] Create `cli.py` with `rich` UI: health snapshots, interactive REPL, `--demo`, `--benchmark`, `--export-json`, and `--export-md` command-line modes.
+- [x] Create `cli.py` with `rich` UI: health snapshots, interactive REPL, Natural Language → Linux Command Copilot, `--benchmark`, `--export-json`, and `--export-md` command-line modes.
 - [x] Write comprehensive unit & integration test suites in `tests/` (41/41 tests passing).
 
 ### Phase 4: Benchmarks, Docs & Submission Deliverables (Day 4)
@@ -37,4 +37,4 @@ Deliver a fully functional, explainable, and production-ready CLI/TUI assistant 
 - [x] Create Stage 2 technical presentation deck in `docs/presentation_deck.md`.
 - [x] Author comprehensive subsystem specs in `docs/ARCHITECTURE_SPEC.md` and failure playbook in `docs/FAILURE_TAXONOMY_PLAYBOOK.md`.
 - [x] Author operator guide in `docs/USER_GUIDE.md` and evaluation rubric in `docs/JUDGES_CHEAT_SHEET.md`.
-- [x] Verify live execution on Linux kernel (`--inspect-health`, `--benchmark`, `--demo`).
+- [x] Verify live execution on Linux kernel (`--inspect-health`, `--benchmark`, natural language command execution).

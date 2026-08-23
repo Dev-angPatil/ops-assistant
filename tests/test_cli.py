@@ -32,11 +32,31 @@ class TestCLI(unittest.TestCase):
         self.assertIn("SUMMARY:", res.stdout)
         self.assertIn("Accuracy:", res.stdout)
 
-    def test_cli_demo(self):
-        res = subprocess.run([sys.executable, "-m", "ops_assistant.cli", "--demo"], capture_output=True, text=True, cwd=PROJECT_ROOT)
+    def test_cli_nl_to_command_proposal(self):
+        res = subprocess.run(
+            [sys.executable, "-m", "ops_assistant.cli", "download zotero"],
+            input="n\n",
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT
+        )
         self.assertEqual(res.returncode, 0)
-        self.assertIn("Scenario 1:", res.stdout)
-        self.assertIn("Demo completed successfully", res.stdout)
+        self.assertIn("command proposal", res.stdout.lower())
+        self.assertIn("pacman", res.stdout.lower())
+        self.assertIn("zotero", res.stdout.lower())
+
+    def test_cli_nl_to_command_distro_override(self):
+        res = subprocess.run(
+            [sys.executable, "-m", "ops_assistant.cli", "install nginx", "--distro", "debian"],
+            input="n\n",
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT
+        )
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("command proposal", res.stdout.lower())
+        self.assertIn("apt-get install", res.stdout.lower())
+        self.assertIn("nginx", res.stdout.lower())
 
     def test_cli_exports(self):
         with tempfile.TemporaryDirectory() as tmpdir:

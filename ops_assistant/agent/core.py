@@ -781,11 +781,12 @@ class ReActAgent:
         distro_override: Optional[str] = None
     ) -> Dict[str, Any]:
         """Unified Natural Language Agent Action Dispatcher."""
+        import sys
         from ops_assistant.nlp.intent_router import IntentRouter, IntentType
         from ops_assistant.nlp.nl_compiler import NaturalLanguageCompiler, generate_natural_explanation
         from ops_assistant.tools import (
             desktop_ops, download_ops, storage_ops, process_ops, network_ops,
-            log_ops, system_ops, docker_ops, security_ops, backup_ops
+            log_ops, system_ops, docker_ops, security_ops, backup_ops, project_ops
         )
 
         resolved_query = query
@@ -837,7 +838,7 @@ class ReActAgent:
 
                 if execute:
                     executor = SafeExecutor()
-                    exec_res = executor.execute(cmd)
+                    exec_res = executor.execute(cmd, rollback_cmd=rollback_cmd)
                     res_action["output"] = exec_res
                     res_action["summary"] = f"Executed: `{cmd}`" if exec_res.get("returncode") == 0 else f"Failed: `{cmd}`"
                 else:
@@ -865,11 +866,186 @@ class ReActAgent:
             "timestamp": time.time()
         }
 
-        # 1. Desktop & OS
-        if intent.type == IntentType.DESKTOP_OPEN_FOLDER:
+        # -----------------------------------------------------------------
+        # 1. Package Management (Distro-Adaptive)
+        # -----------------------------------------------------------------
+        if intent.type == IntentType.PACKAGE_INSTALL:
+            pkg = args.get("package") or args.get("pkg", "")
+            d_info = self.distro_detector.detect(override_family=distro_override)
+            pkg_mgr = d_info.package_manager
+
+            if pkg_mgr == "pacman":
+                cmd = f"sudo pacman -S --noconfirm {pkg}"
+                rb = f"sudo pacman -Rns --noconfirm '{pkg}'"
+                desc = f"Downloads and installs the '{pkg}' software package using pacman on {d_info.distro_name}."
+            elif pkg_mgr in ("apt", "apt-get"):
+                cmd = f"sudo apt-get install -y {pkg}"
+                rb = f"sudo apt-get remove -y '{pkg}'"
+                desc = f"Downloads and installs the '{pkg}' software package using apt on {d_info.distro_name}."
+            elif pkg_mgr == "dnf":
+                cmd = f"sudo dnf install -y {pkg}"
+                rb = f"sudo dnf remove -y '{pkg}'"
+                desc = f"Downloads and installs the '{pkg}' software package using dnf on {d_info.distro_name}."
+            elif pkg_mgr == "apk":
+                cmd = f"sudo apk add {pkg}"
+                rb = f"sudo apk del '{pkg}'"
+                desc = f"Downloads and installs the '{pkg}' software package using apk on {d_info.distro_name}."
+            elif pkg_mgr == "zypper":
+                cmd = f"sudo zypper install -y {pkg}"
+                rb = f"sudo zypper remove -y '{pkg}'"
+                desc = f"Downloads and installs the '{pkg}' software package using zypper on {d_info.distro_name}."
+            else:
+                cmd = f"sudo {pkg_mgr} install -y {pkg}"
+                rb = f"sudo {pkg_mgr} remove -y '{pkg}'"
+                desc = f"Installs '{pkg}' package using {pkg_mgr}."
+
+            result["command"] = cmd
+            result["command_description"] = desc
+            result["summary"] = f"Install software package '{pkg}'"
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.35
+            result["requires_permission"] = True
+            result["rollback_command"] = rb
+            result["planned_commands"] = [{
+                "command": cmd,
+                "description": desc,
+                "safety_level": SafetyLevel.MODIFYING.value,
+                "risk_score": 0.35
+            }]
+            if execute:
+                executor = SafeExecutor()
+                exec_res = executor.execute(cmd, rollback_cmd=rb)
+                result["output"] = exec_res
+                result["executed"] = True
+            return result
+
+        elif intent.type == IntentType.PACKAGE_REMOVE:
+            pkg = args.get("package") or args.get("pkg", "")
+            d_info = self.distro_detector.detect(override_family=distro_override)
+            pkg_mgr = d_info.package_manager
+
+            if pkg_mgr == "pacman":
+                cmd = f"sudo pacman -Rns --noconfirm {pkg}"
+                rb = f"sudo pacman -S --noconfirm '{pkg}'"
+            elif pkg_mgr in ("apt", "apt-get"):
+                cmd = f"sudo apt-get remove -y {pkg}"
+                rb = f"sudo apt-get install -y '{pkg}'"
+            elif pkg_mgr == "dnf":
+                cmd = f"sudo dnf remove -y {pkg}"
+                rb = f"sudo dnf install -y '{pkg}'"
+            elif pkg_mgr == "apk":
+                cmd = f"sudo apk del {pkg}"
+                rb = f"sudo apk add '{pkg}'"
+            elif pkg_mgr == "zypper":
+                cmd = f"sudo zypper remove -y {pkg}"
+                rb = f"sudo zypper install -y '{pkg}'"
+            else:
+                cmd = f"sudo {pkg_mgr} remove -y {pkg}"
+                rb = f"sudo {pkg_mgr} install -y '{pkg}'"
+
+            desc = f"Uninstalls the '{pkg}' package using {pkg_mgr} on {d_info.distro_name}."
+            result["command"] = cmd
+            result["command_description"] = desc
+            result["summary"] = f"Remove software package '{pkg}'"
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.40
+            result["requires_permission"] = True
+            result["rollback_command"] = rb
+            result["planned_commands"] = [{
+                "command": cmd,
+                "description": desc,
+                "safety_level": SafetyLevel.MODIFYING.value,
+                "risk_score": 0.40
+            }]
+            if execute:
+                executor = SafeExecutor()
+                exec_res = executor.execute(cmd, rollback_cmd=rb)
+                result["output"] = exec_res
+                result["executed"] = True
+            return result
+
+        elif intent.type in (IntentType.PACKAGE_UPDATE, IntentType.SYSTEM_UPDATE):
+            d_info = self.distro_detector.detect(override_family=distro_override)
+            pkg_mgr = d_info.package_manager
+
+            if pkg_mgr == "pacman":
+                cmd = "sudo pacman -Syu --noconfirm"
+            elif pkg_mgr in ("apt", "apt-get"):
+                cmd = "sudo apt-get update && sudo apt-get upgrade -y"
+            elif pkg_mgr == "dnf":
+                cmd = "sudo dnf upgrade -y"
+            elif pkg_mgr == "apk":
+                cmd = "sudo apk update && sudo apk upgrade"
+            elif pkg_mgr == "zypper":
+                cmd = "sudo zypper update -y"
+            else:
+                cmd = f"sudo {pkg_mgr} update"
+
+            desc = f"Synchronizes repository indices and upgrades all installed packages on {d_info.distro_name}."
+            result["command"] = cmd
+            result["command_description"] = desc
+            result["summary"] = "Update all system software packages"
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.45
+            result["requires_permission"] = True
+            result["planned_commands"] = [{
+                "command": cmd,
+                "description": desc,
+                "safety_level": SafetyLevel.MODIFYING.value,
+                "risk_score": 0.45
+            }]
+            if execute:
+                executor = SafeExecutor()
+                exec_res = executor.execute(cmd)
+                result["output"] = exec_res
+                result["executed"] = True
+            return result
+
+        elif intent.type == IntentType.PACKAGE_SEARCH:
+            pkg = args.get("package") or args.get("pkg", "")
+            d_info = self.distro_detector.detect(override_family=distro_override)
+            pkg_mgr = d_info.package_manager
+
+            if pkg_mgr == "pacman":
+                cmd = f"pacman -Ss {pkg}"
+            elif pkg_mgr in ("apt", "apt-get"):
+                cmd = f"apt-cache search {pkg}"
+            elif pkg_mgr == "dnf":
+                cmd = f"dnf search {pkg}"
+            elif pkg_mgr == "apk":
+                cmd = f"apk search {pkg}"
+            elif pkg_mgr == "zypper":
+                cmd = f"zypper search {pkg}"
+            else:
+                cmd = f"{pkg_mgr} search {pkg}"
+
+            desc = f"Searches repository index for packages matching '{pkg}'."
+            result["command"] = cmd
+            result["command_description"] = desc
+            result["summary"] = f"Search packages for '{pkg}'"
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["risk_score"] = 0.05
+            result["planned_commands"] = [{
+                "command": cmd,
+                "description": desc,
+                "safety_level": SafetyLevel.READ_ONLY.value,
+                "risk_score": 0.05
+            }]
+            if execute:
+                executor = SafeExecutor()
+                exec_res = executor.execute(cmd)
+                result["output"] = exec_res
+                result["executed"] = True
+            return result
+
+        # -----------------------------------------------------------------
+        # 2. Desktop & OS Applications
+        # -----------------------------------------------------------------
+        elif intent.type == IntentType.DESKTOP_OPEN_FOLDER:
             target_path = args.get("path") or args.get("target", "~")
             create_missing = args.get("create_if_missing", False)
             result["command"] = f"xdg-open '{target_path}'"
+            result["command_description"] = f"Opens directory '{target_path}' in the default graphical file manager."
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["summary"] = f"Opened folder {target_path}"
             if execute:
@@ -881,6 +1057,7 @@ class ReActAgent:
             if not url.startswith("http"):
                 url = f"https://{url}"
             result["command"] = f"xdg-open '{url}'"
+            result["command_description"] = f"Opens '{url}' in your default desktop web browser."
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["summary"] = f"Opened browser to {url}"
             if execute:
@@ -890,6 +1067,7 @@ class ReActAgent:
         elif intent.type == IntentType.DESKTOP_OPEN_FILE:
             target = args.get("path") or args.get("target", "")
             result["command"] = f"xdg-open '{target}'"
+            result["command_description"] = f"Opens '{target}' in its default application handler."
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["summary"] = f"Opened file {target}"
             if execute:
@@ -899,21 +1077,53 @@ class ReActAgent:
         elif intent.type == IntentType.DESKTOP_OPEN_IMAGE:
             target = args.get("path") or args.get("target", "")
             result["command"] = f"xdg-open '{target}'"
+            result["command_description"] = f"Opens image '{target}' in the default image viewer."
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["summary"] = f"Opened image {target}"
             if execute:
                 result["output"] = desktop_ops.open_image(target)
             return result
 
-        # 2. Storage
+        # -----------------------------------------------------------------
+        # 3. Storage & Directories
+        # -----------------------------------------------------------------
+        elif intent.type in (IntentType.DIR_CREATE, IntentType.FILE_CREATE):
+            folder = args.get("path") or args.get("folder") or args.get("name", "new_folder")
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.15
+            cmd = f"mkdir -p '{folder}'"
+            result["command"] = cmd
+            result["command_description"] = f"Creates directory path '{folder}' including parent directories."
+            result["summary"] = f"Create folder '{folder}'"
+            result["rollback_command"] = f"rmdir '{folder}'"
+            if execute:
+                executor = SafeExecutor()
+                exec_res = executor.execute(cmd, rollback_cmd=result["rollback_command"])
+                result["output"] = exec_res
+                result["executed"] = True
+            return result
+
         elif intent.type == IntentType.STORAGE_CLEAN:
             result["requires_permission"] = True
             result["safety_level"] = SafetyLevel.HIGH_RISK.value
             result["risk_score"] = 0.70
-            result["command"] = "sudo journalctl --vacuum-size=100M ; sudo apt clean"
+            result["command"] = "sudo journalctl --vacuum-size=100M ; sudo apt clean 2>/dev/null || sudo pacman -Sc --noconfirm 2>/dev/null || true"
+            result["command_description"] = "Cleans old system journal logs, temporary cache, and stale package files."
             result["summary"] = "Clean system cache and temporary log files"
             if execute:
                 result["output"] = storage_ops.clean_system()
+            return result
+
+        elif intent.type == IntentType.STORAGE_CLEAN_TRASH:
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.HIGH_RISK.value
+            result["risk_score"] = 0.60
+            result["command"] = "rm -rf ~/.local/share/Trash/*"
+            result["command_description"] = "Permanently empties all deleted files from the user trash bin."
+            result["summary"] = "Empty desktop trash bin"
+            if execute:
+                result["output"] = storage_ops.clean_trash()
             return result
 
         elif intent.type == IntentType.STORAGE_ORGANISE:
@@ -922,6 +1132,7 @@ class ReActAgent:
             result["safety_level"] = SafetyLevel.MODIFYING.value
             result["risk_score"] = 0.35
             result["command"] = f"organise_directory '{target}'"
+            result["command_description"] = f"Organizes and categorizes files in '{target}' by file extension."
             result["summary"] = f"Organize directory {target}"
             if execute:
                 result["output"] = storage_ops.organize_folder(target, dry_run=False)
@@ -929,26 +1140,77 @@ class ReActAgent:
                 result["output"] = storage_ops.organize_folder(target, dry_run=True)
             return result
 
-        elif intent.type == IntentType.STORAGE_ANALYSE:
+        elif intent.type in (IntentType.STORAGE_ANALYSE, IntentType.SYSTEM_CHECK_DISK):
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "df -h"
+            result["command_description"] = "Displays filesystem disk usage and available storage capacity."
             result["summary"] = "Analyze disk storage utilization"
             if execute:
                 result["output"] = storage_ops.analyze_storage()
             return result
 
-        elif intent.type == IntentType.STORAGE_FIND_LARGE:
+        elif intent.type in (IntentType.STORAGE_FIND_LARGE, IntentType.SYSTEM_FIND_LARGE):
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "du -sh /* 2>/dev/null | sort -rh | head -10"
+            result["command_description"] = "Scans filesystem for top 10 largest directories consuming storage."
             result["summary"] = "Find large files consuming disk storage"
             if execute:
                 result["output"] = storage_ops.find_large_files()
             return result
 
-        # 3. Processes
+        # -----------------------------------------------------------------
+        # 4. Downloads & Projects
+        # -----------------------------------------------------------------
+        elif intent.type == IntentType.DOWNLOAD_URL:
+            url = args.get("url", "")
+            dest = args.get("dest")
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.30
+            dest_arg = f" -O '{dest}'" if dest else ""
+            result["command"] = f"wget -q --show-progress '{url}'{dest_arg}"
+            result["command_description"] = f"Downloads remote file from '{url}'" + (f" and saves to '{dest}'" if dest else "") + "."
+            result["summary"] = f"Download URL '{url}'"
+            result["output"] = download_ops.download_file(url=url, dest_path=dest, dry_run=not execute)
+            return result
+
+        elif intent.type == IntentType.PROJECT_INSTALL_DEPS:
+            target = args.get("path", ".")
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.35
+            det = project_ops.detect_project_type(target)
+            if det.get("ecosystems"):
+                cmd = det["ecosystems"][0].get("recommended_command", "pip install -r requirements.txt")
+            else:
+                cmd = "pip install -r requirements.txt"
+            result["command"] = cmd
+            result["command_description"] = f"Installs dependencies detected in project manifest at '{target}'."
+            result["summary"] = f"Install project dependencies in {target}"
+            result["output"] = project_ops.install_project_dependencies(target_dir=target, dry_run=not execute)
+            return result
+
+        elif intent.type == IntentType.PROJECT_CREATE_VENV:
+            target = args.get("path", ".")
+            vname = args.get("venv_name", "venv")
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.20
+            cmd = f"{sys.executable} -m venv '{target}/{vname}'"
+            result["command"] = cmd
+            result["command_description"] = f"Creates isolated Python virtual environment at '{target}/{vname}'."
+            result["summary"] = f"Create Python virtualenv '{vname}'"
+            result["rollback_command"] = f"rm -rf '{target}/{vname}'"
+            result["output"] = project_ops.create_python_venv(target_dir=target, venv_name=vname, dry_run=not execute)
+            return result
+
+        # -----------------------------------------------------------------
+        # 5. Processes
+        # -----------------------------------------------------------------
         elif intent.type == IntentType.PROCESS_LIST:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "ps aux --sort=-%mem | head -n 15"
+            result["command_description"] = "Lists top running processes sorted by memory consumption."
             result["summary"] = "List top running processes"
             result["output"] = process_ops.list_top_processes(n=15, sort_by=args.get("sort_by", "mem"))
             return result
@@ -961,15 +1223,19 @@ class ReActAgent:
             result["risk_score"] = 0.70
             if pid:
                 result["command"] = f"sudo kill -15 {pid}"
+                result["command_description"] = f"Sends SIGTERM signal to terminate process PID {pid}."
                 result["summary"] = f"Terminate process PID {pid}"
             else:
                 result["command"] = f"sudo pkill -f '{name}'"
+                result["command_description"] = f"Terminates all running processes matching name pattern '{name}'."
                 result["summary"] = f"Terminate process '{name}'"
             if execute:
                 result["output"] = process_ops.kill_process(name=name, pid=pid)
             return result
 
-        # 4. Services
+        # -----------------------------------------------------------------
+        # 6. Services & System Units
+        # -----------------------------------------------------------------
         elif intent.type in (IntentType.SERVICE_STATUS, IntentType.SERVICE_START, IntentType.SERVICE_STOP,
                              IntentType.SERVICE_RESTART, IntentType.SERVICE_ENABLE, IntentType.SERVICE_DISABLE):
             svc = args.get("service", "")
@@ -981,6 +1247,7 @@ class ReActAgent:
             else:
                 result["command"] = f"sudo systemctl {action} {svc}" if action != "status" else f"systemctl status {svc}"
 
+            result["command_description"] = f"Executes {action} on {svc} daemon using {d_info.init_system} on {d_info.distro_name}."
             result["summary"] = f"{action.capitalize()} service {svc}"
             if action == "status":
                 result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1006,11 +1273,22 @@ class ReActAgent:
                 result["output"] = system_ops.manage_service(action=action, service=svc)
             return result
 
-        # 5. Network & Firewall
+        # -----------------------------------------------------------------
+        # 7. Network & Firewall
+        # -----------------------------------------------------------------
+        elif intent.type in (IntentType.NETWORK_PORTS, IntentType.NETWORK_STATUS):
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["command"] = "ss -tulpn"
+            result["command_description"] = "Scans all open TCP/UDP sockets with process names and listening PIDs."
+            result["summary"] = "Inspect listening network ports"
+            result["output"] = network_ops.list_listening_ports()
+            return result
+
         elif intent.type == IntentType.NETWORK_PING:
             host = args.get("host", "google.com")
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = f"ping -c 4 {host}"
+            result["command_description"] = f"Sends 4 ICMP echo request packets to '{host}' to test reachability."
             result["summary"] = f"Ping network host {host}"
             if execute:
                 result["output"] = network_ops.ping_host(host)
@@ -1020,6 +1298,7 @@ class ReActAgent:
             host = args.get("host", "github.com")
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = f"resolvectl query {host} || host {host}"
+            result["command_description"] = f"Performs DNS hostname resolution lookup for '{host}'."
             result["summary"] = f"DNS lookup for {host}"
             if execute:
                 result["output"] = network_ops.dns_lookup(host)
@@ -1048,15 +1327,19 @@ class ReActAgent:
                 result["command"] = f"sudo ufw {action} {port}/tcp"
                 result["rollback_command"] = f"sudo ufw delete {action} {port}/tcp"
 
+            result["command_description"] = f"Updates firewall policy to {action} incoming TCP traffic on port {port} using {d_info.default_firewall} on {d_info.distro_name}."
             result["summary"] = f"Firewall {action} port {port}"
             if execute:
                 result["output"] = network_ops.manage_firewall(action=action, port=port)
             return result
 
-        # 6. Security
+        # -----------------------------------------------------------------
+        # 8. Security & Vulnerability Auditing
+        # -----------------------------------------------------------------
         elif intent.type == IntentType.SECURITY_AUDIT:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "audit_security"
+            result["command_description"] = "Executes multi-vector security scan checking SSH configs, SUID binaries, and listening ports."
             result["summary"] = "Run comprehensive system security audit"
             result["output"] = security_ops.run_security_scan()
             return result
@@ -1064,6 +1347,7 @@ class ReActAgent:
         elif intent.type == IntentType.SECURITY_BRUTEFORCE:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "sudo grep -i 'failed password' /var/log/auth.log"
+            result["command_description"] = "Inspects authentication logs for SSH brute-force attack attempts."
             result["summary"] = "Check SSH authentication brute-force attempts"
             result["output"] = security_ops.check_ssh_bruteforce()
             return result
@@ -1071,14 +1355,121 @@ class ReActAgent:
         elif intent.type == IntentType.SECURITY_SUID:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "find / -perm -4000 2>/dev/null"
+            result["command_description"] = "Scans filesystem for SUID root binaries that could allow privilege escalation."
             result["summary"] = "Scan for SUID root binaries"
             result["output"] = security_ops.check_suid_binaries()
             return result
 
-        # 7. System Info & Logs
+        # -----------------------------------------------------------------
+        # 9. Docker & Containers
+        # -----------------------------------------------------------------
+        elif intent.type == IntentType.DOCKER_LIST:
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["command"] = "docker ps -a"
+            result["command_description"] = "Lists all running and stopped Docker containers with their port mappings."
+            result["summary"] = "List Docker containers"
+            result["output"] = docker_ops.list_containers()
+            return result
+
+        elif intent.type == IntentType.DOCKER_RESTART:
+            c = args.get("container", "")
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.40
+            result["command"] = f"docker restart '{c}'"
+            result["command_description"] = f"Restarts Docker container '{c}'."
+            result["summary"] = f"Restart Docker container '{c}'"
+            result["rollback_command"] = f"docker restart '{c}'"
+            if execute:
+                result["output"] = docker_ops.restart_container(c)
+            return result
+
+        elif intent.type == IntentType.DOCKER_PRUNE:
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.HIGH_RISK.value
+            result["risk_score"] = 0.65
+            result["command"] = "docker system prune -f"
+            result["command_description"] = "Removes all stopped containers, unused networks, and dangling images."
+            result["summary"] = "Prune unused Docker resources"
+            if execute:
+                result["output"] = docker_ops.prune_system()
+            return result
+
+        # -----------------------------------------------------------------
+        # 10. System Maintenance & Diagnostics
+        # -----------------------------------------------------------------
+        elif intent.type == IntentType.SYSTEM_BOOT_ANALYSIS:
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["command"] = "systemd-analyze blame | head -n 10"
+            result["command_description"] = "Analyzes Linux kernel and systemd boot sequence initialization times."
+            result["summary"] = "Analyze system boot time performance"
+            result["output"] = system_ops.analyze_boot_time()
+            return result
+
+        elif intent.type == IntentType.SYSTEM_TRIM_SSD:
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.35
+            result["command"] = "sudo fstrim -av"
+            result["command_description"] = "Discards unused blocks across all mounted SSD filesystems to optimize flash wear."
+            result["summary"] = "Trim SSD filesystem blocks"
+            result["output"] = system_ops.trim_ssds(dry_run=not execute)
+            return result
+
+        elif intent.type == IntentType.SYSTEM_PACKAGE_CLEAN:
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.35
+            d_info = self.distro_detector.detect(override_family=distro_override)
+            pkg_mgr = d_info.package_manager
+            if pkg_mgr == "pacman":
+                cmd = "sudo pacman -Sc --noconfirm"
+            elif pkg_mgr in ("apt", "apt-get"):
+                cmd = "sudo apt-get clean"
+            elif pkg_mgr == "dnf":
+                cmd = "sudo dnf clean all"
+            elif pkg_mgr == "apk":
+                cmd = "sudo apk cache clean"
+            else:
+                cmd = f"sudo {pkg_mgr} clean"
+            result["command"] = cmd
+            result["command_description"] = f"Removes cached package archives and freed metadata using {pkg_mgr}."
+            result["summary"] = "Clean package manager cache"
+            result["output"] = system_ops.clean_package_cache(dry_run=not execute)
+            return result
+
+        elif intent.type == IntentType.SYSTEM_JOURNAL_VACUUM:
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.30
+            result["command"] = "sudo journalctl --vacuum-size=200M"
+            result["command_description"] = "Truncates and reclaims disk space occupied by systemd journal logs exceeding 200MB."
+            result["summary"] = "Vacuum systemd journal logs"
+            result["output"] = system_ops.vacuum_journal(dry_run=not execute)
+            return result
+
+        elif intent.type == IntentType.SYSTEM_CHECK_CPU:
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["command"] = "mpstat 1 1 || top -bn1 | head -n 12"
+            result["command_description"] = "Displays real-time CPU utilization and core load statistics."
+            result["summary"] = "Check CPU utilization"
+            snap = self.hub.get_health_snapshot()
+            result["output"] = {"user": snap.cpu.user_pct, "system": snap.cpu.system_pct, "idle": snap.cpu.idle_pct}
+            return result
+
+        elif intent.type == IntentType.SYSTEM_CHECK_RAM:
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["command"] = "free -h"
+            result["command_description"] = "Displays physical RAM and swap space allocation and usage."
+            result["summary"] = "Check memory & swap usage"
+            snap = self.hub.get_health_snapshot()
+            result["output"] = {"total_mb": snap.memory.total_mb, "used_mb": snap.memory.used_mb, "percent": snap.memory.used_percent}
+            return result
+
         elif intent.type == IntentType.SYSTEM_INFO:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "uname -a ; uptime"
+            result["command_description"] = "Displays Linux kernel version, hardware architecture, and system uptime."
             result["summary"] = "Show system information"
             if execute:
                 result["output"] = system_ops.get_system_info()
@@ -1087,6 +1478,7 @@ class ReActAgent:
         elif intent.type == IntentType.SYSTEM_UPTIME:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "uptime"
+            result["command_description"] = "Displays system uptime and current load averages."
             result["summary"] = "Show system uptime"
             if execute:
                 result["output"] = system_ops.get_uptime()
@@ -1095,6 +1487,7 @@ class ReActAgent:
         elif intent.type == IntentType.LOGS_ERRORS:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "journalctl -p 3 -xb"
+            result["command_description"] = "Queries systemd journal for priority 3 (Error) log messages from current boot."
             result["summary"] = "Show system error logs"
             if execute:
                 result["output"] = log_ops.query_logs(grep="error", lines=30)
@@ -1103,6 +1496,7 @@ class ReActAgent:
         elif intent.type == IntentType.LOGS_KERNEL:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "dmesg -T --level=err,warn"
+            result["command_description"] = "Queries Linux kernel ring buffer for hardware and driver warning/error messages."
             result["summary"] = "Show kernel logs"
             if execute:
                 result["output"] = log_ops.query_logs(unit="kernel", lines=30)
@@ -1111,13 +1505,14 @@ class ReActAgent:
         elif intent.type == IntentType.USER_WHO:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "who"
+            result["command_description"] = "Lists all currently logged in users and terminal sessions."
             result["summary"] = "List currently logged in users"
             if execute:
                 result["output"] = system_ops.get_logged_in_users()
             return result
 
         # Default fallback to diagnostic ReAct loop
-        rep = self.diagnose(query)
+        rep = self.diagnose(query, distro_override=distro_override)
         result["diagnostic_report"] = rep.to_dict()
         result["summary"] = f"Diagnostic complete: {rep.explanation.symptom} -> {rep.explanation.root_cause}"
         if rep.explanation.proposed_commands:

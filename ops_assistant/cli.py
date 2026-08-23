@@ -1113,27 +1113,124 @@ def run_benchmark(agent: OpsAssistantAgent):
     print("=" * 70)
 
 
-def run_demo(agent: OpsAssistantAgent, executor: SafeExecutor):
-    """Interactive demo showcasing 4 representative failure scenarios."""
-    print("\n" + "=" * 70)
-    print("✨ AI-POWERED LINUX OPERATIONS ASSISTANT — INTERACTIVE DEMO")
-    print("=" * 70)
+def render_action_proposal(
+    action_res: Dict[str, Any],
+    executor: SafeExecutor,
+    auto_yes: bool = False,
+    distro_name: str = "Linux"
+) -> bool:
+    """Renders a natural language command translation card with explanation, flag breakdown, and approval prompt."""
+    cmd = action_res.get("command", "").strip()
+    desc = action_res.get("command_description") or action_res.get("summary", "")
+    safety_str = action_res.get("safety_level", "MODIFYING")
+    risk = float(action_res.get("risk_score", 0.35))
+    rollback = action_res.get("rollback_command")
 
-    demo_scenarios = [
-        ("Scenario 1: NGINX Port Conflict", "Why is NGINX failing to bind to port 80? Address already in use."),
-        ("Scenario 2: Out-of-Memory (OOM) Killer", "Kernel invoked oom-killer: Killed process 8914 (node) total-vm:4194304kB"),
-        ("Scenario 3: Corrupted DPKG Lock", "apt-get upgrade failed: Could not get lock /var/lib/dpkg/lock-frontend"),
-        ("Scenario 4: Expired SSL Certificate", "curl: (60) SSL certificate problem: certificate has expired on internal web host")
-    ]
+    try:
+        safety_lvl = SafetyLevel(safety_str)
+    except Exception:
+        safety_lvl = SafetyLevel.MODIFYING
 
-    for title, query in demo_scenarios:
-        print(f"\n▶ {title}")
-        print(f"  User Query: \"{query}\"")
-        rep = agent.diagnose(query)
-        render_diagnostic_report(rep, executor, interactive_exec=False)
-        time.sleep(0.5)
+    from ops_assistant.explainer.xai import CommandExplainer
+    xai_info = CommandExplainer.explain(cmd) if cmd else {}
 
-    print("✅ Demo completed successfully.")
+    if HAS_RICH and console:
+        header_text = (
+            f"[bold cyan]🎯 Natural Language → Linux Command Copilot[/bold cyan] [dim]({distro_name})[/dim]\n\n"
+            f"[bold white]Query:[/bold white] [italic yellow]{action_res.get('query')}[/italic yellow]\n"
+            f"[bold white]Description:[/bold white] {desc}\n"
+            f"[bold white]Safety Tier:[/bold white] {format_safety_badge(safety_lvl)} [dim](Risk Score: {risk:.2f})[/dim]"
+        )
+        if rollback:
+            header_text += f"\n[bold white]Rollback Plan:[/bold white] [cyan]{rollback}[/cyan]"
+
+        console.print(Panel(header_text, title="[bold green]Command Proposal[/bold green]", border_style="green"))
+
+        console.print(Panel(
+            f"[bold yellow]$ {cmd}[/bold yellow]",
+            title="[bold]Proposed Command[/bold]",
+            border_style="yellow"
+        ))
+
+        if xai_info.get("flags_detected"):
+            flag_table = Table(title="Flag & Option Breakdown", show_header=True, header_style="bold magenta")
+            flag_table.add_column("Flag / Option", style="bold cyan", width=16)
+            flag_table.add_column("Meaning & Purpose")
+            for f in xai_info["flags_detected"]:
+                flag_exp = f.get("purpose") or f.get("explanation", "")
+                flag_table.add_row(f.get("flag", ""), flag_exp)
+            console.print(flag_table)
+    else:
+        print("\n" + "=" * 68)
+        print(f"🎯 PROPOSED COMMAND ({distro_name})")
+        print("=" * 68)
+        print(f"Query:       {action_res.get('query')}")
+        print(f"Command:     $ {cmd}")
+        print(f"Description: {desc}")
+        print(f"Safety:      [{safety_lvl.value}] Risk: {risk:.2f}")
+        if rollback:
+            print(f"Rollback:    {rollback}")
+        if xai_info.get("flags_detected"):
+            print("\nFlag Breakdown:")
+            for f in xai_info["flags_detected"]:
+                flag_exp = f.get("purpose") or f.get("explanation", "")
+                print(f"  • {f.get('flag', ''):<12} : {flag_exp}")
+        print("=" * 68 + "\n")
+
+    if safety_lvl == SafetyLevel.DESTRUCTIVE:
+        if HAS_RICH and console:
+            console.print("[bold red]🛑 DESTRUCTIVE command blocked by safety policy.[/bold red]")
+        else:
+            print("🛑 DESTRUCTIVE command blocked by safety policy.")
+        return False
+
+    if auto_yes:
+        approved = True
+        print("[Auto-approved via --yes flag]")
+    else:
+        try:
+            prompt_text = f"Execute '{cmd}' on {distro_name}? [y/N]: "
+            ans = input(prompt_text).strip().lower()
+            approved = ans in ("y", "yes")
+        except (KeyboardInterrupt, EOFError):
+            print("\nAborted.")
+            return False
+
+    if not approved:
+        if HAS_RICH and console:
+            console.print("[dim]Command execution skipped by user.[/dim]")
+        else:
+            print("Command execution skipped by user.")
+        return False
+
+    if HAS_RICH and console:
+        console.print(f"[bold cyan]▶ Executing:[/bold cyan] [yellow]{cmd}[/yellow]")
+    else:
+        print(f"▶ Executing: {cmd}")
+
+    res = executor.execute(cmd, rollback_cmd=rollback)
+    rc = res.get("returncode", -1)
+
+    if res.get("stdout"):
+        print(res["stdout"])
+    if res.get("stderr") and rc != 0:
+        if HAS_RICH and console:
+            console.print(f"[red]{res['stderr']}[/red]")
+        else:
+            print(res["stderr"])
+
+    if rc == 0:
+        if HAS_RICH and console:
+            console.print(f"[bold green]✓ Command completed successfully (exit code 0).[/bold green]")
+        else:
+            print("✓ Command completed successfully (exit code 0).")
+    else:
+        if HAS_RICH and console:
+            console.print(f"[bold red]❌ Command exited with code {rc}.[/bold red]")
+        else:
+            print(f"❌ Command exited with code {rc}.")
+
+    return rc == 0
 
 
 def print_repl_help():
@@ -1689,78 +1786,12 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
                 _render_log_output(result, title=f"Logs — {svc}")
 
             # -----------------------------------------------------------------
-            # Packages
+            # Packages (Distro-Adaptive NL to Command)
             # -----------------------------------------------------------------
-            elif intent.type == IntentType.PACKAGE_INSTALL:
-                pkg = intent.args.get("package", "")
-                if not pkg:
-                    try:
-                        pkg = input("Package to install: ").strip()
-                    except (KeyboardInterrupt, EOFError):
-                        continue
-                cmds = {
-                    "apt": f"sudo apt-get install -y {pkg}",
-                    "dnf": f"sudo dnf install -y {pkg}",
-                    "yum": f"sudo yum install -y {pkg}",
-                    "pacman": f"sudo pacman -S --noconfirm {pkg}",
-                    "apk": f"sudo apk add {pkg}",
-                    "zypper": f"sudo zypper install -y {pkg}",
-                }
-                cmd = cmds.get(pkg_mgr, f"sudo {pkg_mgr} install {pkg}")
-                _cprint(f"[dim]Will run:[/dim] [bold]{cmd}[/bold]", f"Will run: {cmd}")
-                if _confirm(f"Install '{pkg}' via {pkg_mgr}?"):
-                    _run_shell_passthrough(cmd)
-
-            elif intent.type == IntentType.PACKAGE_REMOVE:
-                pkg = intent.args.get("package", "")
-                if not pkg:
-                    try:
-                        pkg = input("Package to remove: ").strip()
-                    except (KeyboardInterrupt, EOFError):
-                        continue
-                cmds = {
-                    "apt": f"sudo apt-get remove -y {pkg}",
-                    "dnf": f"sudo dnf remove -y {pkg}",
-                    "yum": f"sudo yum remove -y {pkg}",
-                    "pacman": f"sudo pacman -R --noconfirm {pkg}",
-                    "apk": f"sudo apk del {pkg}",
-                    "zypper": f"sudo zypper remove -y {pkg}",
-                }
-                cmd = cmds.get(pkg_mgr, f"sudo {pkg_mgr} remove {pkg}")
-                _cprint(f"[dim]Will run:[/dim] [bold]{cmd}[/bold]", f"Will run: {cmd}")
-                if _confirm(f"⚠  Remove '{pkg}' via {pkg_mgr}?"):
-                    _run_shell_passthrough(cmd)
-
-            elif intent.type == IntentType.PACKAGE_UPDATE:
-                cmds = {
-                    "apt": "sudo apt-get update && sudo apt-get upgrade -y",
-                    "dnf": "sudo dnf upgrade -y",
-                    "yum": "sudo yum update -y",
-                    "pacman": "sudo pacman -Syu --noconfirm",
-                    "apk": "sudo apk update && sudo apk upgrade",
-                    "zypper": "sudo zypper update -y",
-                }
-                cmd = cmds.get(pkg_mgr, f"sudo {pkg_mgr} update")
-                _cprint(f"[dim]Will run:[/dim] [bold]{cmd}[/bold]", f"Will run: {cmd}")
-                if _confirm("Update all packages?"):
-                    _run_shell_passthrough(cmd)
-
-            elif intent.type == IntentType.PACKAGE_SEARCH:
-                pkg = intent.args.get("package", "")
-                if not pkg:
-                    try:
-                        pkg = input("Search for: ").strip()
-                    except (KeyboardInterrupt, EOFError):
-                        continue
-                cmds = {
-                    "apt": f"apt-cache search {pkg}",
-                    "dnf": f"dnf search {pkg}",
-                    "yum": f"yum search {pkg}",
-                    "pacman": f"pacman -Ss {pkg}",
-                    "apk": f"apk search {pkg}",
-                }
-                cmd = cmds.get(pkg_mgr, f"{pkg_mgr} search {pkg}")
-                _run_shell_passthrough(cmd)
+            elif intent.type in (IntentType.PACKAGE_INSTALL, IntentType.PACKAGE_REMOVE,
+                                 IntentType.PACKAGE_UPDATE, IntentType.PACKAGE_SEARCH):
+                act_plan = agent.execute_agent_action(query, distro_override=active_distro, execute=False)
+                render_action_proposal(act_plan, executor, distro_name=d_info.distro_name)
 
             # -----------------------------------------------------------------
             # Network
@@ -2170,12 +2201,12 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
             elif _ql in ["models", "list-models"]:
                 render_models_list()
 
-            elif _ql.startswith("download"):
+            elif _ql.startswith("download-model") or _ql.startswith("model download"):
                 parts = query.split(maxsplit=1)
                 if len(parts) > 1:
                     download_model_cli(parts[1].strip())
                 else:
-                    print("Usage: download <model_key>")
+                    print("Usage: download-model <model_key>")
 
             elif _ql.startswith("provider"):
                 parts = query.split(maxsplit=1)
@@ -2197,9 +2228,6 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
                     ptype = type(agent.llm_provider).__name__ if agent.llm_provider else "None (Deterministic)"
                     print(f"Active LLM Provider: {ptype}")
 
-            elif _ql in ["demo"]:
-                run_demo(agent, executor)
-
             elif _ql in ["benchmark"]:
                 run_benchmark(agent)
 
@@ -2215,18 +2243,27 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
                     print(f"✓ No failed {d_info.init_system} units detected.")
 
             # -----------------------------------------------------------------
-            # Fallthrough → diagnostic engine (DIAGNOSE intent or ambiguous NL)
+            # Fallthrough → Action Dispatcher & Diagnostic Engine
             # -----------------------------------------------------------------
             elif intent.type in (IntentType.DIAGNOSE, IntentType.UNKNOWN):
-                rep = agent.diagnose(query, distro_override=active_distro)
-                last_report = rep
-                render_diagnostic_report(rep, executor, interactive_exec=True)
+                # Check if natural language compiler can synthesize an action command
+                act_plan = agent.execute_agent_action(query, distro_override=active_distro, execute=False)
+                if act_plan.get("command") and not act_plan.get("diagnostic_report"):
+                    render_action_proposal(act_plan, executor, distro_name=d_info.distro_name)
+                else:
+                    rep = agent.diagnose(query, distro_override=active_distro)
+                    last_report = rep
+                    render_diagnostic_report(rep, executor, interactive_exec=True)
 
             else:
-                # Any remaining intent not yet handled
-                rep = agent.diagnose(query, distro_override=active_distro)
-                last_report = rep
-                render_diagnostic_report(rep, executor, interactive_exec=True)
+                # Any remaining action intent -> proposal card
+                act_plan = agent.execute_agent_action(query, distro_override=active_distro, execute=False)
+                if act_plan.get("command") and not act_plan.get("diagnostic_report"):
+                    render_action_proposal(act_plan, executor, distro_name=d_info.distro_name)
+                else:
+                    rep = agent.diagnose(query, distro_override=active_distro)
+                    last_report = rep
+                    render_diagnostic_report(rep, executor, interactive_exec=True)
 
         except KeyboardInterrupt:
             print("\n(Operation cancelled. Type 'exit' to quit.)")
@@ -2247,7 +2284,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="AI-Powered Linux Operations Assistant CLI"
     )
-    parser.add_argument("query", nargs="?", type=str, help="Natural language diagnostic query", default=None)
+    parser.add_argument("query", nargs="?", type=str, help="Natural language diagnostic query or operation command", default=None)
     parser.add_argument("--distro", "-d", type=str, help="Simulate / override Linux distribution family (debian, rhel, arch, alpine, suse)", default=None)
     parser.add_argument("--provider", "-p", type=str, choices=["auto", "deterministic", "gguf", "ollama"], default="auto", help="Reasoning backend engine (auto, deterministic, gguf, ollama)")
     parser.add_argument("--model-path", type=str, help="Path to custom local GGUF model file", default=None)
@@ -2263,9 +2300,9 @@ def main():
     parser.add_argument("--docker-status", action="store_true", help="List Docker containers, status, and port conflict analysis")
     parser.add_argument("--security-audit", action="store_true", help="Run consolidated security audit (SSH, open ports, brute force, SUID)")
     parser.add_argument("--safety-check", "-s", type=str, help="Perform AST safety analysis and deobfuscation check on a command", default=None)
-    parser.add_argument("--demo", action="store_true", help="Run interactive demo across representative failure scenarios")
     parser.add_argument("--benchmark", action="store_true", help="Run automated empirical performance and accuracy benchmark")
     parser.add_argument("--interactive", "-i", action="store_true", help="Enable interactive command execution prompt")
+    parser.add_argument("--yes", "-y", action="store_true", help="Automatically approve and execute proposed operations without prompting")
     parser.add_argument("--export-json", type=str, help="Export diagnostic report to JSON file path", default=None)
     parser.add_argument("--export-md", type=str, help="Export diagnostic report to Markdown file path", default=None)
     parser.add_argument("--gui", action="store_true", help="Launch interactive Web GUI Dashboard in default browser")
@@ -2340,8 +2377,6 @@ def main():
             return
     elif args.safety_check:
         render_safety_inspection(args.safety_check, validator)
-    elif args.demo:
-        run_demo(agent, executor)
     elif args.benchmark:
         run_benchmark(agent)
     elif args.inspect_health:
@@ -2356,12 +2391,17 @@ def main():
         else:
             print("✓ No failed system units found.")
     elif args.query:
-        rep = agent.diagnose(args.query, distro_override=args.distro)
-        render_diagnostic_report(rep, executor, interactive_exec=args.interactive)
-        if args.export_json:
-            export_report(rep, args.export_json, fmt="json")
-        if args.export_md:
-            export_report(rep, args.export_md, fmt="md")
+        action_res = agent.execute_agent_action(args.query, execute=False, distro_override=args.distro)
+        d_info = agent.distro_detector.detect(override_family=args.distro)
+        if action_res.get("diagnostic_report"):
+            rep = agent.diagnose(args.query, distro_override=args.distro)
+            render_diagnostic_report(rep, executor, interactive_exec=args.interactive)
+            if args.export_json:
+                export_report(rep, args.export_json, fmt="json")
+            if args.export_md:
+                export_report(rep, args.export_md, fmt="md")
+        else:
+            render_action_proposal(action_res, executor, auto_yes=args.yes, distro_name=d_info.distro_name)
     else:
         run_repl(agent, executor, distro_override=args.distro)
 

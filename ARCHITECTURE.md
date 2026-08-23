@@ -54,7 +54,7 @@ graph TD
 
 ### 1. **Interactive CLI & TUI (`ops_assistant.cli`)**
 - Built with `rich` formatting and clean standard ANSI terminal fallback.
-- Provides interactive REPL, `--demo` mode across representative failure vectors, automated `--benchmark` mode, `--diagnose-failed` service scanner, distro overrides (`--distro`), and structured report export (`--export-json`, `--export-md`).
+- Provides interactive REPL, Natural Language → Linux Command synthesis with human-in-the-loop approval gates, automated `--benchmark` mode, `--diagnose-failed` service scanner, distro overrides (`--distro`), and structured report export (`--export-json`, `--export-md`).
 
 ### 2. **Consolidated Telemetry Hub (`ops_assistant.collectors.hub`)**
 - **`ProcCollector`**: High-performance kernel telemetry collector:

@@ -121,7 +121,7 @@ python3 -m ops_assistant.cli "Diagnose OOM kill" --export-md oom_report.md
 | `--diagnose-failed` | — | `flag` | Automatically scan and diagnose failed systemd/OpenRC services |
 | `--distro <family>` | `-d` | `string` | Override/simulate Linux distribution family (`debian`, `rhel`, `arch`, `alpine`, `suse`) |
 | `--interactive` | `-i` | `flag` | Enable interactive command execution menu (`[1..N]`, `[D]`, `[R]`, `[S]`) |
-| `--demo` | — | `flag` | Run interactive demo across 4 representative failure scenarios |
+| `--yes` | `-y` | `flag` | Automatically approve and execute proposed operations without confirmation |
 | `--benchmark` | — | `flag` | Run empirical performance and accuracy benchmark across 16 failure taxonomy scenarios |
 | `--export-json <path>` | — | `string` | Export structured diagnostic report to JSON file |
 | `--export-md <path>` | — | `string` | Export structured diagnostic report to Markdown file |
