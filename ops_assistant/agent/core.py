@@ -1070,12 +1070,13 @@ class ReActAgent:
         elif intent.type == IntentType.DESKTOP_OPEN_FOLDER:
             target_path = args.get("path") or args.get("target", "~")
             create_missing = args.get("create_if_missing", False)
-            result["command"] = f"xdg-open '{target_path}'"
-            result["command_description"] = f"Opens directory '{target_path}' in the default graphical file manager."
+            expanded_path = os.path.expanduser(target_path)
+            result["command"] = f"xdg-open '{expanded_path}'"
+            result["command_description"] = f"Opens directory '{expanded_path}' in the default graphical file manager."
             result["safety_level"] = SafetyLevel.READ_ONLY.value
-            result["summary"] = f"Opened folder {target_path}"
+            result["summary"] = f"Opened folder {expanded_path}"
             if execute:
-                result["output"] = desktop_ops.open_folder(target_path, create_if_missing=create_missing)
+                result["output"] = desktop_ops.open_folder(expanded_path, create_if_missing=create_missing)
             return result
 
         elif intent.type == IntentType.DESKTOP_OPEN_BROWSER:

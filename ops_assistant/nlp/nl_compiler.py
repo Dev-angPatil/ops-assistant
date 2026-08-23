@@ -243,16 +243,17 @@ class NaturalLanguageCompiler:
             cleaned_target = re.sub(r"\s+(?:folder|dir|directory)$", "", cleaned_target).strip()
             if cleaned_target in cls.STANDARD_FOLDERS:
                 folder_path = cls.STANDARD_FOLDERS[cleaned_target]
-                cmd = f"xdg-open '{folder_path}'"
+                expanded_path = os.path.expanduser(folder_path)
+                cmd = f"xdg-open '{expanded_path}'"
                 return {
                     "command": cmd,
-                    "path": folder_path,
+                    "path": expanded_path,
                     "description": f"Opens '{folder_path}' in system file manager.",
                     "intent": "desktop_open_folder",
                     "safety_level": "READ_ONLY",
                     "risk_score": 0.05,
                     "explanation": f"I will open the '{cleaned_target.capitalize()}' folder in your file manager.",
-                    "explanation_paragraph": f"The assistant parsed your request to view the {cleaned_target.capitalize()} directory and executed `xdg-open '{folder_path}'` to launch your system's graphical file manager."
+                    "explanation_paragraph": f"The assistant parsed your request to view the {cleaned_target.capitalize()} directory and executed `xdg-open '{expanded_path}'` to launch your system's graphical file manager."
                 }
 
             # Check domain name patterns (e.g. "open amazon.in", "open wikipedia.org")

@@ -55,6 +55,49 @@ class SafeExecutor:
             return res
 
         start_time = time.perf_counter()
+
+        # Check if the command is a desktop GUI launcher that forks a persistent window
+        cmd_stripped = command_str.strip()
+        is_gui_launch = any(
+            cmd_stripped.startswith(prefix)
+            for prefix in (
+                "xdg-open", "nautilus", "dolphin", "thunar", "nemo", "caja", "pcmanfm",
+                "firefox", "zen", "google-chrome", "chromium", "brave", "code", "codium",
+                "eog", "feh", "gwenview", "vlc", "mpv"
+            )
+        )
+
+        if is_gui_launch:
+            try:
+                proc = subprocess.Popen(
+                    command_str,
+                    shell=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True
+                )
+                time.sleep(0.15)
+                rc = proc.poll()
+                rc_val = rc if (rc is not None and rc != 0) else 0
+                stderr_val = f"GUI launcher exited with code {rc}" if rc_val != 0 else ""
+                elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+                res = {
+                    "command": command_str,
+                    "executed": True,
+                    "dry_run": False,
+                    "safety_level": safety_level.value,
+                    "risk_score": risk_score,
+                    "returncode": rc_val,
+                    "stdout": f"[Desktop GUI Launched] PID {proc.pid}",
+                    "stderr": stderr_val,
+                    "elapsed_ms": round(elapsed_ms, 2),
+                    "rollback_command": rollback_cmd
+                }
+                self.history.append(res)
+                return res
+            except Exception:
+                pass
+
         try:
             sub_res = subprocess.run(
                 command_str,
