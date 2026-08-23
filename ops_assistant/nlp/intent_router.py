@@ -98,6 +98,7 @@ class IntentType(Enum):
     DESKTOP_OPEN_FILE   = "desktop_open_file"
     DESKTOP_OPEN_IMAGE  = "desktop_open_image"
     DESKTOP_OPEN_BROWSER = "desktop_open_browser"
+    DESKTOP_SET_WALLPAPER = "desktop_set_wallpaper"
     DOWNLOAD_URL        = "download_url"
     FILE_MOVE           = "file_move"
     FILE_COPY           = "file_copy"
@@ -281,6 +282,62 @@ def _extract_move_copy(m: re.Match) -> Dict[str, Any]:
         if dst:
             res["dst"] = dst
         return res
+    except Exception:
+        return {}
+
+
+def _extract_category_move(m: re.Match) -> Dict[str, Any]:
+    try:
+        raw_cat = (m.group("category") or m.group("cat") or "photos").lower()
+        src = (m.group("src") or "").strip().strip("\"'") if "src" in m.groupdict() and m.group("src") else None
+        dst = (m.group("dst") or "").strip().strip("\"'") if "dst" in m.groupdict() and m.group("dst") else None
+
+        cat = "photos"
+        if "photo" in raw_cat or "image" in raw_cat or "picture" in raw_cat:
+            cat = "photos"
+        elif "video" in raw_cat:
+            cat = "videos"
+        elif "music" in raw_cat or "audio" in raw_cat or "song" in raw_cat:
+            cat = "music"
+        elif "doc" in raw_cat or "pdf" in raw_cat:
+            cat = "documents"
+        elif "archive" in raw_cat or "zip" in raw_cat:
+            cat = "archives"
+
+        cat_defaults = {
+            "photos": ("~/Downloads", "~/Pictures/Photos", ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.avif"]),
+            "videos": ("~/Downloads", "~/Videos", ["*.mp4", "*.mkv", "*.mov", "*.webm", "*.avi"]),
+            "music": ("~/Downloads", "~/Music", ["*.mp3", "*.flac", "*.wav", "*.m4a", "*.opus"]),
+            "documents": ("~/Downloads", "~/Documents", ["*.pdf", "*.docx", "*.doc", "*.txt", "*.xlsx", "*.pptx"]),
+            "archives": ("~/Downloads", "~/Documents/Archives", ["*.zip", "*.tar.gz", "*.tar.xz", "*.7z", "*.rar"]),
+        }
+
+        default_src, default_dst, patterns = cat_defaults.get(cat, ("~/Downloads", f"~/{cat.capitalize()}", ["*"]))
+        final_src = src if src else default_src
+
+        if not dst or dst.lower() in ("photos", "a folder called photos", "folder called photos", "folder photos", "my photos"):
+            final_dst = default_dst
+        elif dst.lower() in ("downloads", "documents", "pictures", "videos", "music"):
+            final_dst = f"~/{dst.capitalize()}"
+        else:
+            final_dst = dst
+
+        return {
+            "src": final_src,
+            "dst": final_dst,
+            "category": cat,
+            "patterns": patterns
+        }
+    except Exception:
+        return {"src": "~/Downloads", "dst": "~/Pictures/Photos", "category": "photos"}
+
+
+def _extract_wallpaper(m: re.Match) -> Dict[str, Any]:
+    try:
+        path = m.group("path") if "path" in m.groupdict() else None
+        if path:
+            return {"path": path.strip().strip("\"'")}
+        return {}
     except Exception:
         return {}
 
@@ -568,9 +625,17 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     ]),
 
     # -----------------------------------------------------------------------
-    # File Operations (Move, Copy, Trash)
+    # File Operations (Move, Copy, Trash) & Wallpaper Management
     # -----------------------------------------------------------------------
+    (IntentType.DESKTOP_SET_WALLPAPER, [
+        (r"\b(?:can\s+you\s+)?(?:change|set|switch|update|randomize|random)\s+(?:my\s+|the\s+)?(?:desktop\s+)?wallpaper(?:\s+(?:to|with)\s+(?P<path>[^\n]+))?\b", _extract_wallpaper),
+        (r"\bwallpaper\s+(?:change|switch|picker|selector|update)\b", _extract_wallpaper),
+        (r"\bswitch\s+(?:my\s+)?wallpaper\b", _extract_wallpaper),
+    ]),
+
     (IntentType.FILE_MOVE, [
+        (r"\b(?:move|transfer|relocate|organize)\s+(?:all\s+)?(?:my\s+)?(?:downloaded\s+)?(?P<category>photos|images|pictures|videos|documents|music|archives|files)\s*(?:from\s+(?P<src>[a-zA-Z0-9_\-\.\/~]+)\s+)?(?:in(?:to)?|to)\s+(?:a\s+)?(?:folder\s+(?:called|named)\s+)?(?P<dst>[a-zA-Z0-9_\-\.\/~]+)?", _extract_category_move),
+        (r"\b(?:move|transfer|relocate)\s+(?:all\s+)?(?:my\s+)?(?P<category>downloaded\s+photos|photos\s+in\s+downloads|downloaded\s+images|images\s+in\s+downloads)\s*(?:in(?:to)?|to)\s+(?:a\s+)?(?:folder\s+(?:called|named)\s+)?(?P<dst>[a-zA-Z0-9_\-\.\/~]+)?", _extract_category_move),
         (r"\b(?:move|mv|relocate)\s+(?P<src>[\w\.\-\/~]+)\s+(?:to|into)\s+(?P<dst>[\w\.\-\/~]+)", _extract_move_copy),
         (r"^mv\s+(?P<src>[\w\.\-\/~]+)\s+(?P<dst>[\w\.\-\/~]+)$", _extract_move_copy),
     ]),

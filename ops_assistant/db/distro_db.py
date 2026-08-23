@@ -123,6 +123,17 @@ class DistroKnowledgeBase:
                 FOREIGN KEY (family_id) REFERENCES distro_profiles(family_id),
                 UNIQUE(family_id, path_key)
             );
+
+            CREATE TABLE IF NOT EXISTS desktop_ecosystems (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ecosystem_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                command_syntax TEXT NOT NULL,
+                description TEXT NOT NULL,
+                wiki_url TEXT,
+                UNIQUE(ecosystem_id, category, topic)
+            );
         """)
         self.conn.commit()
 
@@ -144,6 +155,9 @@ class DistroKnowledgeBase:
         elif os.path.exists(self.data_source_path):
             if count == 0 or db_version != "2.0.0":
                 self.seed_from_json(self.data_source_path)
+
+        # Always seed desktop ecosystems (Hyprland, HyDE, Wayland, Audio)
+        self._seed_desktop_ecosystems()
 
     def seed_distro_packs(self, family_id: str = "all") -> None:
         """Seeds the database from modular pack folders in ops_assistant/data/packs/."""
@@ -694,6 +708,73 @@ class DistroKnowledgeBase:
                 lines.append(f"- **{q['title']}**: {q['recommendation']} (Never: {q['do_not_do']})")
 
         return "\n".join(lines)
+
+    def _seed_desktop_ecosystems(self) -> None:
+        """Seeds rich operational knowledge for desktop environments, HyDE, Wayland, and PipeWire."""
+        ecosystems_data = [
+            # Hyprland Ecosystem
+            ("hyprland", "workspace", "switch_workspace", "hyprctl dispatch workspace <ID>", "Switches the active focused workspace to workspace number ID.", "https://wiki.hyprland.org/Configuring/Dispatchers/"),
+            ("hyprland", "workspace", "move_to_workspace", "hyprctl dispatch movetoworkspace <ID>", "Moves currently focused window to workspace ID.", "https://wiki.hyprland.org/Configuring/Dispatchers/"),
+            ("hyprland", "window", "kill_active", "hyprctl dispatch killactive", "Closes or kills the currently focused window.", "https://wiki.hyprland.org/Configuring/Dispatchers/"),
+            ("hyprland", "window", "toggle_floating", "hyprctl dispatch togglefloating", "Toggles floating mode for the currently active window.", "https://wiki.hyprland.org/Configuring/Dispatchers/"),
+            ("hyprland", "window", "fullscreen", "hyprctl dispatch fullscreen 1", "Toggles fullscreen mode for the active window.", "https://wiki.hyprland.org/Configuring/Dispatchers/"),
+            ("hyprland", "system", "reload_config", "hyprctl reload", "Instantly reloads Hyprland configuration without restarting session.", "https://wiki.hyprland.org/Configuring/Using-hyprctl/"),
+            ("hyprland", "system", "list_monitors", "hyprctl monitors", "Displays connected display outputs, resolutions, and refresh rates.", "https://wiki.hyprland.org/Configuring/Monitors/"),
+            ("hyprland", "system", "list_windows", "hyprctl clients", "Lists all active open windows, workspaces, and process IDs.", "https://wiki.hyprland.org/Configuring/Using-hyprctl/"),
+            ("hyprland", "wallpaper", "set_hyprpaper", "hyprctl hyprpaper preload '<path>' && hyprctl hyprpaper wallpaper ',<path>'", "Preloads and applies wallpaper image via hyprpaper IPC.", "https://wiki.hyprland.org/Hypr-Ecosystem/hyprpaper/"),
+
+            # HyDE Theme Framework
+            ("hyde", "theme", "theme_switch", "~/.config/hypr/themes", "HyDE dynamic theme directory for switching global color palettes and assets.", "https://github.com/HyDE-Project/HyDE"),
+            ("hyde", "wallpaper", "wallpaper_picker", "waypaper", "Interactive graphical wallpaper picker integrated with HyDE Material You palette generation.", "https://github.com/HyDE-Project/HyDE"),
+            ("hyde", "styling", "matugen_theme", "matugen image '<path>'", "Extracts Material You colors from wallpaper and themes Waybar, Rofi, and GTK.", "https://github.com/InioX/matugen"),
+            ("hyde", "bar", "reload_waybar", "killall -SIGUSR2 waybar", "Sends reload signal to Waybar to refresh styling and layout modules.", "https://github.com/HyDE-Project/HyDE"),
+            ("hyde", "launcher", "app_menu", "rofi -show drun", "Opens HyDE theme application launcher.", "https://github.com/HyDE-Project/HyDE"),
+            ("hyde", "shortcuts", "default_keybinds", "Super+Q: Terminal | Super+W: Wallpaper | Super+C: Close | Super+E: Files | Super+Space: Menu", "Primary default keybindings in HyDE environment.", "https://github.com/HyDE-Project/HyDE"),
+
+            # Wayland Core Tools
+            ("wayland_core", "clipboard", "copy_text", "wl-copy < '<file>'", "Copies file content or stdin stream into Wayland system clipboard.", "https://wayland.freedesktop.org/"),
+            ("wayland_core", "clipboard", "paste_text", "wl-paste", "Outputs current text content stored in Wayland clipboard.", "https://wayland.freedesktop.org/"),
+            ("wayland_core", "screenshot", "region_screenshot", "grim -g \"$(slurp)\" ~/Pictures/Screenshots/screenshot_$(date +%Y%m%d_%H%M%S).png", "Captures an interactive region selection and saves to Screenshots directory.", "https://github.com/emersion/grim"),
+            ("wayland_core", "screenshot", "full_screenshot", "grim ~/Pictures/Screenshots/screenshot_$(date +%Y%m%d_%H%M%S).png", "Captures full screen and saves to user Screenshots directory.", "https://github.com/emersion/grim"),
+            ("wayland_core", "color_picker", "pick_color", "hyprpicker -a", "Launches magnifier color picker and automatically copies hex value to clipboard.", "https://github.com/hyprwm/hyprpicker"),
+
+            # Audio & PipeWire
+            ("audio_pipewire", "volume", "increase_volume", "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+", "Increases default audio output volume by 5%.", "https://pipewire.org/"),
+            ("audio_pipewire", "volume", "decrease_volume", "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-", "Decreases default audio output volume by 5%.", "https://pipewire.org/"),
+            ("audio_pipewire", "volume", "toggle_mute", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle", "Toggles mute status for the active default audio output sink.", "https://pipewire.org/"),
+            ("audio_pipewire", "status", "inspect_nodes", "wpctl status", "Lists active audio endpoints, volume levels, and bluetooth sink connections.", "https://pipewire.org/"),
+        ]
+
+        cursor = self.conn.cursor()
+        for eco_id, cat, topic, syntax, desc, wiki in ecosystems_data:
+            cursor.execute("""
+                INSERT OR REPLACE INTO desktop_ecosystems (ecosystem_id, category, topic, command_syntax, description, wiki_url)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (eco_id, cat, topic, syntax, desc, wiki))
+        self.conn.commit()
+
+    def get_desktop_ecosystem_context(self, ecosystem_id: str) -> List[Dict[str, Any]]:
+        """Returns all registered topics and operational commands for a desktop ecosystem."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM desktop_ecosystems WHERE ecosystem_id = ? ORDER BY category, topic", (ecosystem_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def list_desktop_ecosystems(self) -> List[str]:
+        """Lists distinct registered desktop ecosystems in the knowledge base."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT DISTINCT ecosystem_id FROM desktop_ecosystems ORDER BY ecosystem_id")
+        return [row[0] for row in cursor.fetchall()]
+
+    def search_desktop_ecosystems(self, query: str) -> List[Dict[str, Any]]:
+        """Searches desktop ecosystem operational commands and documentation."""
+        cursor = self.conn.cursor()
+        pattern = f"%{query}%"
+        cursor.execute("""
+            SELECT * FROM desktop_ecosystems
+            WHERE ecosystem_id LIKE ? OR category LIKE ? OR topic LIKE ? OR description LIKE ? OR command_syntax LIKE ?
+            ORDER BY ecosystem_id, category
+        """, (pattern, pattern, pattern, pattern, pattern))
+        return [dict(row) for row in cursor.fetchall()]
 
     def close(self) -> None:
         """Closes the underlying SQLite database connection."""

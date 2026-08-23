@@ -351,3 +351,138 @@ def trash_path(path: str) -> Dict[str, Any]:
             "error": str(e),
             "action": "trash_path"
         }
+
+
+def find_available_wallpapers() -> List[str]:
+    """
+    Scans common user and system wallpaper directories to locate available background images.
+    """
+    candidate_dirs = [
+        Path.home() / "Pictures" / "Photos" / "Wallpaper",
+        Path.home() / "Pictures" / "Wallpapers",
+        Path.home() / "Pictures" / "Photos",
+        Path.home() / "Pictures" / "Assets & Stock",
+        Path.home() / "Pictures",
+        Path.home() / ".config" / "hypr" / "themes",
+        Path("/usr/share/backgrounds"),
+        Path("/usr/share/wallpapers"),
+    ]
+    extensions = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".bmp"}
+    found: List[str] = []
+
+    for d in candidate_dirs:
+        if d.is_dir():
+            try:
+                for f in d.rglob("*"):
+                    if f.is_file() and f.suffix.lower() in extensions:
+                        found.append(str(f))
+                        if len(found) >= 50:
+                            break
+            except Exception:
+                continue
+
+    return found
+
+
+def set_wallpaper(image_path: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Changes the desktop wallpaper across Hyprland (hyprpaper/swww), GNOME (gsettings),
+    KDE (plasma-apply-wallpaperimage), Waypaper, or X11 (feh/nitrogen).
+    """
+    import random
+
+    if image_path:
+        target = _expand_path(image_path)
+        if not target.exists() or not target.is_file():
+            return {
+                "success": False,
+                "error": f"Wallpaper file does not exist: {target}",
+                "action": "set_wallpaper"
+            }
+        chosen_path = str(target)
+    else:
+        avail = find_available_wallpapers()
+        if not avail:
+            return {
+                "success": False,
+                "error": "No wallpaper images found in ~/Pictures/Wallpapers or system directories.",
+                "action": "set_wallpaper"
+            }
+        chosen_path = random.choice(avail)
+
+    executed_cmd = ""
+    # 1. Hyprland / Wayland with hyprpaper
+    if shutil.which("hyprpaper"):
+        try:
+            cfg_dir = Path.home() / ".config" / "hypr"
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            cfg_file = cfg_dir / "hyprpaper.conf"
+            cfg_file.write_text(f"preload = {chosen_path}\nwallpaper = ,{chosen_path}\nsplash = false\n", encoding="utf-8")
+            subprocess.run(["pkill", "-x", "hyprpaper"], capture_output=True, timeout=1)
+            subprocess.Popen(["hyprpaper"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            executed_cmd = f"hyprpaper (set wallpaper: {chosen_path})"
+        except Exception:
+            pass
+
+    # 2. matugen on HyDE / Material You
+    if shutil.which("matugen"):
+        try:
+            subprocess.run(["matugen", "image", chosen_path], capture_output=True, timeout=2)
+        except Exception:
+            pass
+
+    # 3. swww on Wayland
+    if not executed_cmd and shutil.which("swww"):
+        try:
+            subprocess.run(["swww", "img", chosen_path, "--transition-type", "wipe"], capture_output=True, timeout=2)
+            executed_cmd = f"swww img '{chosen_path}' --transition-type wipe"
+        except Exception:
+            pass
+
+    # 4. GNOME gsettings
+    if not executed_cmd and shutil.which("gsettings"):
+        try:
+            file_uri = f"file://{chosen_path}"
+            subprocess.run(["gsettings", "set", "org.gnome.desktop.background", "picture-uri", file_uri], capture_output=True, timeout=2)
+            subprocess.run(["gsettings", "set", "org.gnome.desktop.background", "picture-uri-dark", file_uri], capture_output=True, timeout=2)
+            executed_cmd = f"gsettings set org.gnome.desktop.background picture-uri 'file://{chosen_path}'"
+        except Exception:
+            pass
+
+    # 5. KDE Plasma
+    if not executed_cmd and shutil.which("plasma-apply-wallpaperimage"):
+        try:
+            subprocess.run(["plasma-apply-wallpaperimage", chosen_path], capture_output=True, timeout=2)
+            executed_cmd = f"plasma-apply-wallpaperimage '{chosen_path}'"
+        except Exception:
+            pass
+
+    # 6. feh on X11
+    if not executed_cmd and shutil.which("feh"):
+        try:
+            subprocess.run(["feh", "--bg-fill", chosen_path], capture_output=True, timeout=2)
+            executed_cmd = f"feh --bg-fill '{chosen_path}'"
+        except Exception:
+            pass
+
+    if not executed_cmd:
+        # Fallback: launch image in default viewer or waypaper
+        if shutil.which("waypaper"):
+            subprocess.Popen(["waypaper", "--wallpaper", chosen_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            executed_cmd = f"waypaper --wallpaper '{chosen_path}'"
+        else:
+            return {
+                "success": True,
+                "wallpaper": chosen_path,
+                "command": f"xdg-open '{chosen_path}'",
+                "message": f"Selected wallpaper '{chosen_path}'. (Install hyprpaper, swww, or feh for background daemons)",
+                "action": "set_wallpaper"
+            }
+
+    return {
+        "success": True,
+        "wallpaper": chosen_path,
+        "command": executed_cmd,
+        "message": f"Changed desktop wallpaper to: {chosen_path}",
+        "action": "set_wallpaper"
+    }

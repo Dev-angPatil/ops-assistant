@@ -287,6 +287,129 @@ class NaturalLanguageCompiler:
                     "explanation_paragraph": f"The assistant resolved the folder reference '{fld}' and dispatched `xdg-open` to reveal the directory in your desktop file manager."
                 }
 
+        # 3.5 File Organization & Moves (e.g. "move my downloaded photos into a folder called photos")
+        m_move = re.search(
+            r"^(?:please\s+)?(?:move|transfer|relocate|organize)\s+(?:all\s+)?(?:my\s+)?(?P<cat>downloaded\s+photos|photos\s+in\s+downloads|downloaded\s+images|images\s+in\s+downloads|photos|images|pictures|videos|documents|music|archives|files)\s*(?:from\s+(?P<src>[^\s]+)\s+)?(?:in(?:to)?|to)\s+(?:a\s+)?(?:folder\s+(?:called|named)\s+)?(?P<dst>.+)$",
+            clean,
+            re.IGNORECASE
+        )
+        if m_move:
+            cat_raw = m_move.group("cat").lower()
+            src_raw = (m_move.group("src") or "").strip()
+            dst_raw = (m_move.group("dst") or "").strip().rstrip(". ")
+
+            if "photo" in cat_raw or "image" in cat_raw or "picture" in cat_raw:
+                src_path = os.path.expanduser(src_raw or "~/Downloads")
+                if not dst_raw or dst_raw.lower() in ("photos", "my photos", "folder photos", "a folder called photos"):
+                    dst_path = os.path.expanduser("~/Pictures/Photos")
+                else:
+                    dst_path = os.path.expanduser(f"~/{dst_raw.capitalize()}" if not dst_raw.startswith(("/", "~", ".")) else dst_raw)
+
+                cmd = f"mkdir -p '{dst_path}' && find '{src_path}' -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.gif' -o -iname '*.avif' \\) -exec mv -t '{dst_path}' {{}} +"
+                return {
+                    "command": cmd,
+                    "description": f"Moves all photos and images from '{src_path}' to '{dst_path}'.",
+                    "intent": "file_move",
+                    "safety_level": "MODIFYING",
+                    "risk_score": 0.25,
+                    "rollback_command": f"find '{dst_path}' -maxdepth 1 -type f -exec mv -t '{src_path}' {{}} +",
+                    "explanation": f"I will move your downloaded photos into '{dst_path}'.",
+                    "explanation_paragraph": f"The assistant compiled your request into a batch file mover. It creates '{dst_path}' if needed and moves matching image formats (.jpg, .png, .webp, .gif) from '{src_path}'."
+                }
+
+        # 3.6 Desktop Wallpaper Management (e.g. "change my wallpaper", "set wallpaper to ...")
+        m_wall = re.search(
+            r"^(?:can\s+you\s+)?(?:please\s+)?(?:change|set|switch|update|randomize|random)\s+(?:my\s+|the\s+)?(?:desktop\s+)?wallpaper(?:\s+(?:to|with)\s+(?P<img_path>.+))?$",
+            clean,
+            re.IGNORECASE
+        )
+        if m_wall:
+            img_path_raw = (m_wall.group("img_path") or "").strip().strip("\"'")
+            if img_path_raw:
+                expanded_img = os.path.expanduser(img_path_raw)
+                cmd = f"wall='{expanded_img}'; [ -f \"$wall\" ] && (mkdir -p ~/.config/hypr && echo -e \"preload = $wall\\nwallpaper = ,$wall\\nsplash = false\" > ~/.config/hypr/hyprpaper.conf && pkill -x hyprpaper 2>/dev/null; hyprpaper >/dev/null 2>&1 & which matugen >/dev/null 2>&1 && matugen image \"$wall\" 2>/dev/null || true; which swww >/dev/null 2>&1 && swww img \"$wall\" --transition-type wipe 2>/dev/null || true; which feh >/dev/null 2>&1 && feh --bg-fill \"$wall\" 2>/dev/null || true; which gsettings >/dev/null 2>&1 && gsettings set org.gnome.desktop.background picture-uri \"file://$wall\" 2>/dev/null || true)"
+                desc = f"Sets desktop wallpaper to '{expanded_img}'."
+            else:
+                cmd = "wall=$(find ~/Pictures/Wallpapers ~/Pictures/Photos/Wallpaper ~/Pictures /usr/share/backgrounds -type f \\( -iname '*.jpg' -o -iname '*.png' -o -iname '*.webp' \\) 2>/dev/null | shuf -n 1); [ -n \"$wall\" ] && (mkdir -p ~/.config/hypr && echo -e \"preload = $wall\\nwallpaper = ,$wall\\nsplash = false\" > ~/.config/hypr/hyprpaper.conf && pkill -x hyprpaper 2>/dev/null; hyprpaper >/dev/null 2>&1 & which matugen >/dev/null 2>&1 && matugen image \"$wall\" 2>/dev/null || true; which swww >/dev/null 2>&1 && swww img \"$wall\" --transition-type wipe 2>/dev/null || true; which feh >/dev/null 2>&1 && feh --bg-fill \"$wall\" 2>/dev/null || true; which gsettings >/dev/null 2>&1 && gsettings set org.gnome.desktop.background picture-uri \"file://$wall\" 2>/dev/null || true)"
+                desc = "Randomizes desktop wallpaper from your Pictures/Wallpapers collection."
+
+            return {
+                "command": cmd,
+                "description": desc,
+                "intent": "desktop_set_wallpaper",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will update your desktop wallpaper.",
+                "explanation_paragraph": "The assistant recognized your wallpaper request and dispatched the appropriate Wayland / X11 wallpaper switcher (hyprpaper, swww, matugen, feh, or gsettings)."
+            }
+
+        # 3.7 Desktop Ecosystem & Audio / Wayland Operations
+        if re.search(r"\b(?:reload|restart)\s+(?:the\s+)?waybar\b", clean, re.IGNORECASE):
+            return {
+                "command": "killall -SIGUSR2 waybar 2>/dev/null || (killall waybar 2>/dev/null ; waybar >/dev/null 2>&1 &)",
+                "description": "Hot-reloads Waybar status bar configuration and stylesheets.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will reload your Waybar status bar.",
+                "explanation_paragraph": "Dispatches SIGUSR2 to Waybar to reload layout modules and styling without ending your session."
+            }
+
+        if re.search(r"\b(?:reload|restart)\s+(?:the\s+)?hyprland\b", clean, re.IGNORECASE):
+            return {
+                "command": "hyprctl reload",
+                "description": "Reloads Hyprland compositor configuration.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will reload your Hyprland configuration.",
+                "explanation_paragraph": "Dispatches `hyprctl reload` to re-parse ~/.config/hypr/hyprland.conf in real-time."
+            }
+
+        if re.search(r"\b(?:take\s+(?:a\s+)?screenshot|capture\s+screen|screen\s+capture)\b", clean, re.IGNORECASE):
+            return {
+                "command": "mkdir -p ~/Pictures/Screenshots && (which grim >/dev/null 2>&1 && which slurp >/dev/null 2>&1 && grim -g \"$(slurp)\" ~/Pictures/Screenshots/screenshot_$(date +%Y%m%d_%H%M%S).png || spectacle 2>/dev/null || gnome-screenshot 2>/dev/null || import ~/Pictures/Screenshots/screenshot_$(date +%Y%m%d_%H%M%S).png)",
+                "description": "Captures a screenshot selection and saves it to ~/Pictures/Screenshots.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will launch the interactive screen capture tool.",
+                "explanation_paragraph": "Invokes `grim -g \"$(slurp)\"` on Wayland (or native screenshot utility) to capture screen area to ~/Pictures/Screenshots."
+            }
+
+        if re.search(r"\b(?:increase|turn\s+up|raise)\s+(?:the\s+)?volume\b|\bvolume\s+up\b", clean, re.IGNORECASE):
+            return {
+                "command": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+ 2>/dev/null || pactl set-sink-volume @DEFAULT_SINK@ +5% 2>/dev/null || amixer set Master 5%+ 2>/dev/null",
+                "description": "Increases default audio output volume by 5%.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will increase audio output volume.",
+                "explanation_paragraph": "Executes `wpctl` (or `pactl`) to raise the primary audio sink level by 5%."
+            }
+
+        if re.search(r"\b(?:decrease|turn\s+down|lower)\s+(?:the\s+)?volume\b|\bvolume\s+down\b", clean, re.IGNORECASE):
+            return {
+                "command": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%- 2>/dev/null || pactl set-sink-volume @DEFAULT_SINK@ -5% 2>/dev/null || amixer set Master 5%- 2>/dev/null",
+                "description": "Decreases default audio output volume by 5%.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will decrease audio output volume.",
+                "explanation_paragraph": "Executes `wpctl` (or `pactl`) to lower the primary audio sink level by 5%."
+            }
+
+        if re.search(r"\b(?:mute|unmute|toggle\s+mute)\s*(?:the\s+)?(?:audio|volume|sound)?\b", clean, re.IGNORECASE):
+            return {
+                "command": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle 2>/dev/null || pactl set-sink-mute @DEFAULT_SINK@ toggle 2>/dev/null || amixer set Master toggle 2>/dev/null",
+                "description": "Toggles mute status on default audio sink.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will toggle audio output mute status.",
+                "explanation_paragraph": "Executes `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` to toggle audio mute."
+            }
+
         # 4. System Resource & Health Inquiries
         # e.g. "check my CPU uses", "check ram", "how much memory is free"
         if re.search(r"\b(?:check|show|get|view|inspect)\s+(?:my\s+)?(?:cpu|processor)(?:\s+(?:uses|usage|load|status|utilization))?\b", clean, re.IGNORECASE) or clean.lower() in ("cpu uses", "cpu usage", "check cpu"):

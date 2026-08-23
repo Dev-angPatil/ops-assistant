@@ -80,6 +80,20 @@ class TestDesktopOps(unittest.TestCase):
         self.assertTrue(t_res["success"])
         self.assertFalse(os.path.exists(dst_move))
 
+    def test_find_available_wallpapers(self):
+        found = desktop_ops.find_available_wallpapers()
+        self.assertIsInstance(found, list)
+
+    @patch("shutil.which")
+    def test_set_wallpaper(self, mock_which):
+        img = os.path.join(self.test_dir, "wall.jpg")
+        with open(img, "w") as f:
+            f.write("image data")
+        mock_which.return_value = None
+        res = desktop_ops.set_wallpaper(img)
+        self.assertTrue(res["success"])
+        self.assertIn("wallpaper", res)
+
 
 if __name__ == "__main__":
     unittest.main()

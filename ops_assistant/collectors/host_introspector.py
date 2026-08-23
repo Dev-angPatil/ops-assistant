@@ -24,6 +24,11 @@ class HostRuntimeCapabilities:
     default_shell: str = "/bin/sh"
     kernel_release: str = ""
     architecture: str = ""
+    desktop_environment: str = ""
+    theme_framework: str = ""
+    wallpaper_backend: str = ""
+    audio_backend: str = ""
+    detected_ecosystems: List[str] = field(default_factory=list)
 
 
 class HostIntrospector:
@@ -101,6 +106,57 @@ class HostIntrospector:
         kernel_release = os.uname().release if hasattr(os, "uname") else ""
         architecture = os.uname().machine if hasattr(os, "uname") else ""
 
+        # 8. Desktop Environment, Theme Framework & Ecosystems
+        desktop_env = os.environ.get("XDG_CURRENT_DESKTOP") or os.environ.get("DESKTOP_SESSION") or ""
+        if not desktop_env:
+            if "HYPRLAND_INSTANCE_SIGNATURE" in os.environ or shutil.which("hyprctl") is not None:
+                desktop_env = "Hyprland"
+            elif shutil.which("sway") is not None and "SWAYSOCK" in os.environ:
+                desktop_env = "Sway"
+            elif os.path.exists("/usr/bin/gnome-shell"):
+                desktop_env = "GNOME"
+            elif os.path.exists("/usr/bin/plasmashell"):
+                desktop_env = "KDE Plasma"
+            else:
+                desktop_env = "Headless / CLI"
+
+        # Check theme frameworks (e.g. HyDE, Omakub)
+        theme_fw = ""
+        home_path = Path.home()
+        if (home_path / ".config" / "hypr" / "themes").is_dir() or (home_path / ".config" / "hyde").is_dir() or shutil.which("hyde") is not None:
+            theme_fw = "HyDE"
+        elif (home_path / ".local" / "share" / "omakub").is_dir():
+            theme_fw = "Omakub"
+
+        # Check wallpaper backend
+        wp_backend = ""
+        for wp in ["hyprpaper", "swww", "waypaper", "matugen", "feh", "nitrogen", "plasma-apply-wallpaperimage", "gsettings"]:
+            if shutil.which(wp) is not None:
+                wp_backend = wp
+                break
+
+        # Check audio backend
+        audio_backend = ""
+        if shutil.which("wpctl") is not None or os.path.exists("/run/user/1000/pipewire-0"):
+            audio_backend = "PipeWire (WirePlumber)"
+        elif shutil.which("pactl") is not None:
+            audio_backend = "PulseAudio"
+        elif shutil.which("amixer") is not None:
+            audio_backend = "ALSA"
+
+        # Build active ecosystems list
+        detected_ecosystems = []
+        if "hypr" in desktop_env.lower() or shutil.which("hyprctl") is not None:
+            detected_ecosystems.append("hyprland")
+        if theme_fw == "HyDE":
+            detected_ecosystems.append("hyde")
+        if "wayland" in os.environ.get("XDG_SESSION_TYPE", "").lower() or shutil.which("wl-copy") is not None:
+            detected_ecosystems.append("wayland_core")
+        if "pipewire" in audio_backend.lower():
+            detected_ecosystems.append("audio_pipewire")
+        if is_sysd:
+            detected_ecosystems.append("systemd")
+
         caps = HostRuntimeCapabilities(
             init_system=init_sys,
             is_systemd=is_sysd,
@@ -112,7 +168,12 @@ class HostIntrospector:
             installed_utilities=installed_utils,
             default_shell=default_shell,
             kernel_release=kernel_release,
-            architecture=architecture
+            architecture=architecture,
+            desktop_environment=desktop_env,
+            theme_framework=theme_fw,
+            wallpaper_backend=wp_backend,
+            audio_backend=audio_backend,
+            detected_ecosystems=detected_ecosystems
         )
         self._cached_capabilities = caps
         return caps

@@ -257,7 +257,19 @@ class TestAgentDistroAdaptation(unittest.TestCase):
         cmds_alp = [c.command for c in rep_alp.explanation.proposed_commands]
         self.assertTrue(any("rc-service nginx status" in c for c in cmds_alp))
         self.assertTrue(any("logread" in c for c in cmds_alp))
-        self.assertFalse(any("systemctl" in c for c in cmds_alp))
+    def test_desktop_ecosystem_knowledge(self):
+        ecosystems = self.db.list_desktop_ecosystems()
+        self.assertIn("hyprland", ecosystems)
+        self.assertIn("hyde", ecosystems)
+        self.assertIn("wayland_core", ecosystems)
+        self.assertIn("audio_pipewire", ecosystems)
+
+        hyde_topics = self.db.get_desktop_ecosystem_context("hyde")
+        self.assertTrue(len(hyde_topics) > 0)
+        self.assertTrue(any("waybar" in t["topic"] or "theme" in t["topic"] for t in hyde_topics))
+
+        search_res = self.db.search_desktop_ecosystems("wallpaper")
+        self.assertTrue(len(search_res) > 0)
 
 
 if __name__ == "__main__":

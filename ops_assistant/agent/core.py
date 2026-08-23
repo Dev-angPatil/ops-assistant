@@ -1111,6 +1111,85 @@ class ReActAgent:
                 result["output"] = desktop_ops.open_image(target)
             return result
 
+        elif intent.type == IntentType.DESKTOP_SET_WALLPAPER:
+            target_path = args.get("path")
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["risk_score"] = 0.05
+            if target_path:
+                expanded_img = os.path.expanduser(target_path)
+                result["command"] = f"hyprctl hyprpaper preload '{expanded_img}' 2>/dev/null && hyprctl hyprpaper wallpaper ',{expanded_img}' 2>/dev/null || swww img '{expanded_img}' --transition-type wipe 2>/dev/null || matugen image '{expanded_img}' 2>/dev/null || feh --bg-fill '{expanded_img}' 2>/dev/null || gsettings set org.gnome.desktop.background picture-uri 'file://{expanded_img}' 2>/dev/null || xdg-open '{expanded_img}'"
+                result["command_description"] = f"Sets desktop wallpaper to '{expanded_img}'."
+                result["summary"] = f"Set wallpaper to '{expanded_img}'"
+            else:
+                result["command"] = "wall=$(find ~/Pictures/Wallpapers ~/Pictures/Photos/Wallpaper ~/Pictures /usr/share/backgrounds -type f \\( -iname '*.jpg' -o -iname '*.png' -o -iname '*.webp' \\) 2>/dev/null | shuf -n 1); [ -n \"$wall\" ] && (hyprctl hyprpaper preload \"$wall\" 2>/dev/null && hyprctl hyprpaper wallpaper \",$wall\" 2>/dev/null || swww img \"$wall\" --transition-type wipe 2>/dev/null || matugen image \"$wall\" 2>/dev/null || feh --bg-fill \"$wall\" 2>/dev/null || gsettings set org.gnome.desktop.background picture-uri \"file://$wall\" 2>/dev/null || xdg-open \"$wall\")"
+                result["command_description"] = "Randomizes desktop wallpaper from your Pictures/Wallpapers collection."
+                result["summary"] = "Change desktop wallpaper"
+            if execute:
+                result["output"] = desktop_ops.set_wallpaper(target_path)
+            return result
+
+        elif intent.type == IntentType.FILE_MOVE:
+            src = args.get("src", "~/Downloads")
+            dst = args.get("dst", "~/Pictures/Photos")
+            category = args.get("category", "photos")
+            src_expanded = os.path.expanduser(src)
+            dst_expanded = os.path.expanduser(dst)
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.25
+
+            if category in ("photos", "images", "pictures", "videos", "music", "documents", "archives"):
+                ext_patterns = args.get("patterns", ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.avif"])
+                pattern_clause = " -o ".join(f"-iname '{p}'" for p in ext_patterns)
+                cmd = f"mkdir -p '{dst_expanded}' && find '{src_expanded}' -maxdepth 1 -type f \\( {pattern_clause} \\) -exec mv -t '{dst_expanded}' {{}} +"
+                result["command"] = cmd
+                result["command_description"] = f"Moves all {category} files from '{src_expanded}' to '{dst_expanded}'."
+                result["summary"] = f"Move {category} from {src} to {dst}"
+                result["rollback_command"] = f"find '{dst_expanded}' -maxdepth 1 -type f -exec mv -t '{src_expanded}' {{}} +"
+            else:
+                cmd = f"mkdir -p '{os.path.dirname(dst_expanded) if not dst_expanded.endswith('/') else dst_expanded}' && mv '{src_expanded}' '{dst_expanded}'"
+                result["command"] = cmd
+                result["command_description"] = f"Moves file or directory from '{src_expanded}' to '{dst_expanded}'."
+                result["summary"] = f"Move {src} to {dst}"
+                result["rollback_command"] = f"mv '{dst_expanded}' '{src_expanded}'"
+
+            if execute:
+                executor = SafeExecutor()
+                exec_res = executor.execute(cmd, rollback_cmd=result.get("rollback_command"))
+                result["output"] = exec_res
+                result["executed"] = True
+            return result
+
+        elif intent.type == IntentType.FILE_COPY:
+            src = os.path.expanduser(args.get("src", "."))
+            dst = os.path.expanduser(args.get("dst", "."))
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.20
+            cmd = f"cp -r '{src}' '{dst}'"
+            result["command"] = cmd
+            result["command_description"] = f"Recursively copies files from '{src}' to '{dst}'."
+            result["summary"] = f"Copy {src} to {dst}"
+            result["rollback_command"] = f"rm -rf '{dst}'"
+            if execute:
+                executor = SafeExecutor()
+                exec_res = executor.execute(cmd, rollback_cmd=result.get("rollback_command"))
+                result["output"] = exec_res
+                result["executed"] = True
+            return result
+
+        elif intent.type == IntentType.FILE_TRASH:
+            target = os.path.expanduser(args.get("path", "."))
+            result["requires_permission"] = True
+            result["safety_level"] = SafetyLevel.MODIFYING.value
+            result["risk_score"] = 0.20
+            result["command"] = f"gio trash '{target}' 2>/dev/null || mv '{target}' ~/.local/share/Trash/files/"
+            result["command_description"] = f"Safely moves '{target}' to user trash."
+            result["summary"] = f"Trash file/directory {target}"
+            if execute:
+                result["output"] = desktop_ops.trash_path(target)
+            return result
+
         # -----------------------------------------------------------------
         # 3. Storage & Directories
         # -----------------------------------------------------------------
@@ -1268,6 +1347,26 @@ class ReActAgent:
             svc = args.get("service", "")
             action = intent.type.value.replace("service_", "")
             d_info = self.distro_detector.detect(override_family=distro_override)
+
+            # Special case for desktop user-session components (waybar, hyprland, dunst, etc.)
+            desktop_svc_map = {
+                "waybar": "killall -SIGUSR2 waybar 2>/dev/null || (killall waybar 2>/dev/null ; waybar >/dev/null 2>&1 &)",
+                "hyprland": "hyprctl reload",
+                "sway": "swaymsg reload",
+                "dunst": "killall dunst 2>/dev/null ; dunst >/dev/null 2>&1 &",
+                "mako": "makoctl reload 2>/dev/null",
+            }
+            if svc.lower() in desktop_svc_map and action in ("restart", "reload"):
+                result["command"] = desktop_svc_map[svc.lower()]
+                result["command_description"] = f"Reloads {svc} desktop session component without root privileges."
+                result["summary"] = f"Reload {svc}"
+                result["safety_level"] = SafetyLevel.READ_ONLY.value
+                result["risk_score"] = 0.05
+                if execute:
+                    executor = SafeExecutor()
+                    result["output"] = executor.execute(result["command"])
+                    result["executed"] = True
+                return result
 
             if d_info.init_system == "openrc":
                 result["command"] = f"sudo rc-service {svc} {action}" if action != "status" else f"rc-service {svc} status"
