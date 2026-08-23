@@ -561,7 +561,7 @@ if [ "$CHOSEN_MODEL" = "deterministic" ]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 6. Model Download & Configuration
+# 6. Fast Core Engine Configuration (Phase 1)
 # ------------------------------------------------------------------------------
 echo ""
 export OPS_TARGET_DISTRO="$TARGET_DISTRO"
@@ -573,8 +573,9 @@ if [ "$PROVIDER" = "deterministic" ]; then
     log_success "Configuring Deterministic-Only Engine (0 MB download, sub-50ms latency, zero RAM overhead)."
     "$VENV_PY" -c "
 import os
-from ops_assistant.config import set_setup_completed, get_config, ConfigManager
+from ops_assistant.config import set_setup_completed, get_config, ConfigManager, set_install_phase
 set_setup_completed(provider='deterministic')
+set_install_phase('complete', pending_model_key=None)
 cfg = get_config()
 target_distro = os.environ.get('OPS_TARGET_DISTRO', '').strip()
 if target_distro:
@@ -595,11 +596,12 @@ elif [ "$PROVIDER" = "ollama" ]; then
     export OPS_OLLAMA_MODEL="$OLLAMA_MODEL"
     "$VENV_PY" -c "
 import os
-from ops_assistant.config import set_setup_completed, get_config, ConfigManager
+from ops_assistant.config import set_setup_completed, get_config, ConfigManager, set_install_phase
 cfg = get_config()
 cfg['provider'] = 'ollama'
 cfg['ollama_model'] = os.environ.get('OPS_OLLAMA_MODEL', 'llama3:8b')
 cfg['setup_completed'] = True
+cfg['install_phase'] = 'complete'
 target_distro = os.environ.get('OPS_TARGET_DISTRO', '').strip()
 if target_distro:
     cfg['distro_override'] = target_distro
@@ -607,79 +609,27 @@ ConfigManager().save(cfg)
 print(f'✓ Configured Ollama with model: {cfg[\"ollama_model\"]}')
 "
 else
-    # GGUF Model Download & Setup
-    log_info "Selected model: ${BOLD}$CHOSEN_MODEL${RESET}"
-    
-    # Optional GGUF runtime dependency installation
-    log_info "Verifying llama-cpp-python runtime for local GGUF inference..."
-    if ! "$VENV_PY" -c "import llama_cpp" >/dev/null 2>&1; then
-        log_info "Installing llama-cpp-python wheel in virtual environment..."
-        "$VENV_PIP" install --quiet llama-cpp-python || log_warn "llama-cpp-python binary wheel not available for this architecture. System will use fast-path deterministic fallback if inference library cannot be compiled."
-    fi
-
-    if [ "$SKIP_MODEL_DOWNLOAD" = false ]; then
-        log_info "Checking / downloading model weights..."
-        "$VENV_PY" -c "
+    # GGUF Model Selected: Core installation initializes deterministic mode immediately;
+    # Heavy weights download and inference runtime setup are queued for background enhancement.
+    log_info "Selected AI Model: ${BOLD}$CHOSEN_MODEL${RESET}"
+    log_success "Initializing core deterministic fast-path engine for immediate availability."
+    "$VENV_PY" -c "
 import os
-import sys
-from ops_assistant.model_manager.downloader import ModelDownloader
-from ops_assistant.config import set_setup_completed, get_config, ConfigManager
-from ops_assistant.hardware.advisor import MODEL_CATALOG, HardwareAdvisor
-
+from ops_assistant.config import set_setup_completed, get_config, ConfigManager, set_install_phase
 mkey = os.environ.get('OPS_CHOSEN_MODEL', 'deterministic')
-dl = ModelDownloader()
-avail = dl.list_available_models()
+target_distro = os.environ.get('OPS_TARGET_DISTRO', '').strip()
 
-if mkey in avail and avail[mkey]['is_downloaded']:
-    print(f'✓ Model {mkey} is already downloaded.')
-    mpath = avail[mkey]['local_path']
-else:
-    print(f'[*] Downloading {mkey} from Hugging Face...')
-    last_p = -1
-    def progress(cur, total, pct):
-        nonlocal last_p
-        ipct = int(pct)
-        if ipct % 10 == 0 and ipct != last_p:
-            last_p = ipct
-            print(f'    Downloading: {ipct}% ({cur // (1024*1024)}MB / {total // (1024*1024)}MB)')
-    
-    mpath = str(dl.download_model(mkey, progress_callback=progress))
-    print(f'✓ Successfully downloaded to {mpath}')
-
-adv = HardwareAdvisor()
-prof = adv.profiler.profile()
-caps = adv.generate_capability_matrix(prof)
-
-set_setup_completed(
-    provider='gguf',
-    model_key=mkey,
-    model_path=mpath,
-    hardware_tier=prof.compute_tier,
-    threads=caps.recommended_threads,
-    ctx_size=caps.recommended_ctx_size,
-    gpu_layers=caps.recommended_gpu_layers
-)
+# Initialize with deterministic mode as safe fast-path while model downloads
+set_setup_completed(provider='deterministic')
+set_install_phase('core_only', pending_model_key=mkey)
 
 cfg = get_config()
-target_distro = os.environ.get('OPS_TARGET_DISTRO', '').strip()
 if target_distro:
     cfg['distro_override'] = target_distro
 ConfigManager().save(cfg)
-print('✓ Setup configuration persisted.')
+print(f'✓ Fast core engine initialized. Model {mkey} queued for background enhancement.')
 "
-    fi
 fi
-
-# Initialize lean distro knowledge pack for the target host
-log_info "Initializing lean distribution knowledge pack for '$TARGET_DISTRO'..."
-"$VENV_PY" -c "
-import os
-from ops_assistant.db.distro_db import DistroKnowledgeBase
-db = DistroKnowledgeBase()
-db.seed_distro_packs(target)
-installed = db.list_installed_packs()
-print(f'✓ Lean knowledge database seeded with active profile: {installed}')
-"
 
 # ------------------------------------------------------------------------------
 # 7. Create Global CLI Launcher Wrapper & Shell Integrations
@@ -787,12 +737,44 @@ if [ "$PATH_EXPORT_NEEDED" = true ]; then
 fi
 
 # ------------------------------------------------------------------------------
+# 7d. Launch Background Enhancement Task (Phase 2)
+# ------------------------------------------------------------------------------
+ENHANCE_SCRIPT="$INSTALL_DIR/enhance.sh"
+if [ -f "$ENHANCE_SCRIPT" ]; then
+    chmod +x "$ENHANCE_SCRIPT"
+    log_info "Spawning background enhancement task (runtime, model weights, knowledge base)..."
+    nohup "$ENHANCE_SCRIPT" "$VENV_PY" "$INSTALL_DIR" "$TARGET_DISTRO" "$CHOSEN_MODEL" "$VENV_PIP" >/dev/null 2>&1 &
+    ENHANCE_PID=$!
+    disown "$ENHANCE_PID" 2>/dev/null || true
+    
+    "$VENV_PY" -c "
+from ops_assistant.config import set_install_phase
+mkey = '$CHOSEN_MODEL'
+pid = int('$ENHANCE_PID')
+if mkey != 'deterministic':
+    set_install_phase('enhancing', pending_model_key=mkey, enhancement_pid=pid)
+"
+    log_success "Background enhancement active (PID: $ENHANCE_PID)."
+fi
+
+# ------------------------------------------------------------------------------
 # 8. Post-Installation Verification & Health Check
 # ------------------------------------------------------------------------------
 echo ""
-echo -e "${CYAN}==============================================================================${RESET}"
-echo -e "${BOLD}${GREEN}                INSTALLATION & SETUP COMPLETED SUCCESSFULLY!                  ${RESET}"
-echo -e "${CYAN}==============================================================================${RESET}"
+if [ "$CHOSEN_MODEL" != "deterministic" ] && [ "$SKIP_MODEL_DOWNLOAD" = false ]; then
+    echo -e "${CYAN}==============================================================================${RESET}"
+    echo -e "${BOLD}${GREEN}        FAST CORE INSTALLATION COMPLETED! (${WHITE}ops-assistant is ready${GREEN})        ${RESET}"
+    echo -e "${CYAN}==============================================================================${RESET}"
+    echo ""
+    echo -e "  ${GREEN}[✓]${RESET} Core Deterministic Engine is active (sub-50ms triage, 16 failure taxonomies)"
+    echo -e "  ${YELLOW}[⟳]${RESET} Background Task: Downloading ${BOLD}$CHOSEN_MODEL${RESET} weights & setting up runtime"
+    echo -e "  ${CYAN}[*]${RESET} Check background progress anytime with: ${BOLD}ops-assistant --install-status${RESET}"
+    echo -e "  ${CYAN}[*]${RESET} Web GUI will also show live progress at: ${BOLD}ops-assistant --gui${RESET}"
+else
+    echo -e "${CYAN}==============================================================================${RESET}"
+    echo -e "${BOLD}${GREEN}                INSTALLATION & SETUP COMPLETED SUCCESSFULLY!                  ${RESET}"
+    echo -e "${CYAN}==============================================================================${RESET}"
+fi
 echo ""
 
 # Quick health snapshot test
@@ -803,6 +785,7 @@ echo ""
 echo -e "${BOLD}${WHITE}Quick Command Reference:${RESET}"
 echo -e "  ${GREEN}ops-assistant${RESET} ${DIM}\"Why is port 80 failing to bind?\"${RESET}  # Diagnostic query"
 echo -e "  ${GREEN}ops-assistant -i${RESET}                                   # Interactive Sysadmin REPL"
+echo -e "  ${GREEN}ops-assistant --install-status${RESET}                     # Check background install progress"
 echo -e "  ${GREEN}ops-assistant --inspect-health${RESET}                     # Real-time PSI & Health Dashboard"
 echo -e "  ${GREEN}ops-assistant --diagnose-failed${RESET}                    # Scan & diagnose crashed services"
 echo -e "  ${GREEN}ops-assistant --gui${RESET}                                # Launch Web Dashboard GUI"
@@ -811,3 +794,4 @@ echo -e "  ${RED}./uninstall.sh${RESET}                                     # Cl
 echo ""
 echo -e "${BOLD}Enjoy autonomous, explainable Linux operations!${RESET}"
 echo ""
+

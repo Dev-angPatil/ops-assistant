@@ -43,6 +43,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "auto_check_updates": True,
     "working_directory": str(Path.home()),
     "distro_override": None,
+    "install_phase": "complete",  # "core_only", "enhancing", "complete"
+    "pending_model_key": None,
+    "enhancement_pid": None,
 }
 
 
@@ -119,6 +122,64 @@ class ConfigManager:
         self.save(cfg)
         return cfg
 
+    def get_install_phase(self) -> str:
+        """Return current install phase: 'core_only', 'enhancing', or 'complete'."""
+        cfg = self.load()
+        return cfg.get("install_phase", "complete")
+
+    def set_install_phase(
+        self,
+        phase: str,
+        pending_model_key: Optional[str] = None,
+        enhancement_pid: Optional[int] = None,
+    ) -> bool:
+        """Set installation phase status and pending metadata."""
+        cfg = self.load()
+        cfg["install_phase"] = phase
+        if pending_model_key is not None:
+            cfg["pending_model_key"] = pending_model_key
+        if enhancement_pid is not None:
+            cfg["enhancement_pid"] = enhancement_pid
+        return self.save(cfg)
+
+    def is_fully_installed(self) -> bool:
+        """Return True if installation is fully complete (not just core_only/enhancing)."""
+        cfg = self.load()
+        return cfg.get("install_phase", "complete") == "complete" and bool(cfg.get("setup_completed", False))
+
+    def finalize_enhancement(
+        self,
+        model_key: Optional[str] = None,
+        model_path: Optional[str] = None,
+        hardware_tier: Optional[str] = None,
+        threads: Optional[int] = None,
+        ctx_size: Optional[int] = None,
+        gpu_layers: Optional[int] = None,
+        provider: str = "gguf",
+    ) -> Dict[str, Any]:
+        """Finalize background enhancement phase, promoting pending model to active."""
+        cfg = self.load()
+        cfg["install_phase"] = "complete"
+        cfg["setup_completed"] = True
+        cfg["enhancement_pid"] = None
+        if model_key:
+            cfg["active_model_key"] = model_key
+            cfg["pending_model_key"] = None
+        if model_path:
+            cfg["active_model_path"] = str(model_path)
+        if provider:
+            cfg["provider"] = provider
+        if hardware_tier:
+            cfg["hardware_tier"] = hardware_tier
+        if threads is not None:
+            cfg["recommended_threads"] = threads
+        if ctx_size is not None:
+            cfg["recommended_ctx_size"] = ctx_size
+        if gpu_layers is not None:
+            cfg["recommended_gpu_layers"] = gpu_layers
+        self.save(cfg)
+        return cfg
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get a configuration value."""
         return self.load().get(key, default)
@@ -148,6 +209,22 @@ def is_setup_completed() -> bool:
 
 def set_setup_completed(**kwargs) -> Dict[str, Any]:
     return _config_manager.set_setup_completed(**kwargs)
+
+
+def get_install_phase() -> str:
+    return _config_manager.get_install_phase()
+
+
+def set_install_phase(phase: str, pending_model_key: Optional[str] = None, enhancement_pid: Optional[int] = None) -> bool:
+    return _config_manager.set_install_phase(phase, pending_model_key, enhancement_pid)
+
+
+def is_fully_installed() -> bool:
+    return _config_manager.is_fully_installed()
+
+
+def finalize_enhancement(**kwargs) -> Dict[str, Any]:
+    return _config_manager.finalize_enhancement(**kwargs)
 
 
 def get_gemini_api_key() -> Optional[str]:
@@ -184,4 +261,5 @@ def set_distro_override(distro: Optional[str]) -> bool:
     """Set or clear the distribution override."""
     val = distro.strip() if isinstance(distro, str) and distro.strip() else None
     return _config_manager.set("distro_override", val)
+
 

@@ -150,3 +150,14 @@ graph TD
 - **Collapsible Tactical Stream (`Ctrl+J`)**: Instant toggle to maximize dashboard space.
 - **Explainable AI (XAI) Modal**: On-demand flag-by-flag semantic deconstruction of planned bash commands.
 - **Copilot & Working Directory Settings**: Configure Gemini API keys, inference models, and active workspace directory on the fly.
+- **Model Hub & Background Progress Banner**: Visual notification pill showing real-time background downloads and model switching interface.
+
+### 13. **Phased Fast Installation & Background Enhancement Engine (`install.sh`, `enhance.sh`, `ops_assistant.install_tracker`)**
+- **Two-Phase Fast Architecture**:
+  - **Phase 1 (Core Install, <60s)**: Installs core dependencies (`rich`, `pytest`), virtual environment, CLI binary wrapper, and shell completions. Configures Deterministic Fast-Path engine immediately, making `ops-assistant` usable without delay.
+  - **Phase 2 (Background Enhancement, Detached)**: Spawns an asynchronous background worker (`enhance.sh`) with file-based locking (`flock`) to install `llama-cpp-python`, stream selected open-weight AI models with atomic temp writes, and seed the modular distribution knowledge database.
+- **State Machine & Auto-Activation (`InstallTracker`)**:
+  - Emits structured state snapshots to `~/.ops_assistant/enhance.state.json`.
+  - Verifies background process PID liveness (`os.kill(pid, 0)`) to guard against zombie/interrupted states.
+  - Automatically promotes downloaded model weights to active inference on next CLI or GUI invocation with zero user interruption.
+

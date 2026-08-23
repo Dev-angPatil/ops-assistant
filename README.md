@@ -111,13 +111,16 @@ ops-assistant "Why is apache2 failing to restart?" --distro alpine
 ops-assistant "Check firewall rules" --distro rhel
 ops-assistant "Update package index" --distro boss
 
-# 8. Hardware Setup & Model Configuration Wizard
+# 8. Check Background Installation / Enhancement Progress
+ops-assistant --install-status
+
+# 9. Hardware Setup & Model Configuration Wizard
 ops-assistant --setup
 
-# 9. Launch Interactive Web GUI Dashboard
+# 10. Launch Interactive Web GUI Dashboard
 ops-assistant --gui
 
-# 10. Run Full Empirical Benchmark (16 Failure Taxonomies)
+# 11. Run Full Empirical Benchmark (16 Failure Taxonomies)
 ops-assistant --benchmark
 ```
 

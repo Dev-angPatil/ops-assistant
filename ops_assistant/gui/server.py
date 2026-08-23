@@ -213,20 +213,45 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             from ops_assistant.hardware.advisor import HardwareAdvisor, MODEL_CATALOG
             from ops_assistant.model_manager.downloader import ModelDownloader
             from ops_assistant.config import get_config, is_setup_completed
+            from ops_assistant.install_tracker import get_tracker
             adv = HardwareAdvisor()
             prof = adv.profiler.profile()
             rec = adv.get_full_advisory()["recommended_model"]
             dl = ModelDownloader()
             cfg = get_config()
+            tracker = get_tracker()
             self._send_json({
                 "setup_completed": is_setup_completed(),
+                "install_phase": cfg.get("install_phase", "complete"),
+                "pending_model_key": cfg.get("pending_model_key"),
+                "active_model_key": cfg.get("active_model_key"),
                 "has_models": dl.has_any_model_installed(),
                 "config": cfg,
                 "hardware": prof.to_dict(),
                 "recommended_model": rec,
                 "catalog": MODEL_CATALOG,
                 "installed_models": dl.list_available_models(),
-                "download_progress": dl.get_download_progress()
+                "download_progress": dl.get_download_progress(),
+                "tracker_status": tracker.get_status(),
+            })
+            return
+
+        elif path == "/api/install-status":
+            from ops_assistant.install_tracker import get_tracker
+            from ops_assistant.config import get_config
+            from ops_assistant.model_manager.downloader import ModelDownloader
+            tracker = get_tracker()
+            cfg = get_config()
+            st = tracker.get_status()
+            dl = ModelDownloader()
+            self._send_json({
+                "status": st,
+                "install_phase": cfg.get("install_phase", "complete"),
+                "pending_model_key": cfg.get("pending_model_key"),
+                "active_model_key": cfg.get("active_model_key"),
+                "provider": cfg.get("provider", "deterministic"),
+                "downloads": dl.get_download_progress(),
+                "installed_models": dl.list_available_models(),
             })
             return
 
@@ -586,6 +611,45 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             dl = ModelDownloader()
             res = dl.start_background_download(mkey, force=force)
             self._send_json(res)
+            return
+
+        # 11d. Switch Active AI Model
+        elif path == "/api/models/switch":
+            from ops_assistant.config import finalize_enhancement, set_setup_completed, get_config
+            from ops_assistant.model_manager.downloader import ModelDownloader
+            from ops_assistant.hardware.advisor import MODEL_CATALOG, HardwareAdvisor
+
+            mkey = body.get("model_key", "").strip()
+            provider = body.get("provider", "gguf")
+
+            if mkey == "deterministic" or provider == "deterministic":
+                res_cfg = set_setup_completed(provider="deterministic")
+                self._send_json({"success": True, "message": "Switched active engine to Deterministic Fast-Path (0 MB)", "config": res_cfg})
+                return
+            elif mkey == "ollama" or provider == "ollama":
+                res_cfg = set_setup_completed(provider="ollama")
+                self._send_json({"success": True, "message": "Switched active engine to Ollama backend", "config": res_cfg})
+                return
+
+            dl = ModelDownloader()
+            avail = dl.list_available_models()
+            if mkey not in avail or not avail[mkey]["is_downloaded"]:
+                self._send_json({"success": False, "error": f"Model '{mkey}' is not downloaded yet. Please download it first."})
+                return
+
+            adv = HardwareAdvisor()
+            prof = adv.profiler.profile()
+            caps = adv.generate_capability_matrix(prof)
+            res_cfg = finalize_enhancement(
+                model_key=mkey,
+                model_path=avail[mkey]["local_path"],
+                hardware_tier=prof.compute_tier,
+                threads=caps.recommended_threads,
+                ctx_size=caps.recommended_ctx_size,
+                gpu_layers=caps.recommended_gpu_layers,
+                provider="gguf"
+            )
+            self._send_json({"success": True, "message": f"Successfully activated '{mkey}' for local inference", "config": res_cfg})
             return
 
         # 12. Docker Actions

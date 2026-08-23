@@ -366,6 +366,8 @@ document.addEventListener('DOMContentLoaded', () => {
   loadInitialData();
   renderQueryHistory();
   loadHistoryFromBackend();
+  checkInstallStatus();
+  setInterval(checkInstallStatus, 3000);
 
   updateTacticalClock();
   setInterval(updateTacticalClock, 1000);
@@ -2197,6 +2199,9 @@ async function openSettingsModal() {
     }
   } catch (e) {}
 
+  // Load Local Model Hub
+  await loadModelHub();
+
   if (window.lucide) lucide.createIcons();
 }
 
@@ -2254,3 +2259,204 @@ function togglePasswordVisibility(inputId) {
     input.type = input.type === 'password' ? 'text' : 'password';
   }
 }
+
+// ==========================================================================
+// BACKGROUND INSTALLATION STATUS & MODEL HUB MANAGEMENT
+// ==========================================================================
+let lastInstallStatus = null;
+
+const MODEL_CATALOG_INFO = {
+  "deterministic": { name: "Deterministic Rule Engine", size: "0 MB", ram: "< 50 MB", desc: "Sub-50ms triage, 16 failure taxonomies, zero RAM overhead", provider: "deterministic" },
+  "smollm2-360m": { name: "SmolLM2-360M-Instruct", size: "218 MB", ram: "800 MB", desc: "Ultra-lightweight edge triage & micro-VM queries", provider: "gguf" },
+  "qwen2.5-coder-0.5b": { name: "Qwen2.5-Coder-0.5B-Instruct", size: "379 MB", ram: "1.2 GB", desc: "Fast command syntax parsing & log triage", provider: "gguf" },
+  "qwen2.5-coder-1.5b": { name: "Qwen2.5-Coder-1.5B-Instruct", size: "986 MB", ram: "2.5 GB", desc: "Balanced speed/precision, awk/sed/grep synthesis", provider: "gguf" },
+  "llama-3.2-3b": { name: "Llama-3.2-3B-Instruct", size: "1.92 GB", ram: "4.5 GB", desc: "Multi-step incident reasoning & structured JSON", provider: "gguf" },
+  "qwen2.5-coder-7b": { name: "Qwen2.5-Coder-7B-Instruct", size: "4.36 GB", ram: "8.5 GB", desc: "Deep Linux internals, SELinux, bash scripting", provider: "gguf" },
+  "mistral-7b-instruct": { name: "Mistral-7B-Instruct-v0.3", size: "4.07 GB", ram: "8.0 GB", desc: "Multi-daemon log correlation & interactive REPL", provider: "gguf" },
+  "deepseek-r1-distill-qwen-7b": { name: "DeepSeek-R1-Distill-7B", size: "4.58 GB", ram: "9.0 GB", desc: "Chain-of-Thought (CoT) root cause formal proofs", provider: "gguf" },
+  "ollama": { name: "Local Ollama Daemon", size: "Custom", ram: "Host-managed", desc: "Connects to existing http://localhost:11434", provider: "ollama" }
+};
+
+async function checkInstallStatus() {
+  try {
+    const res = await fetch('/api/install-status');
+    if (!res.ok) return;
+    const data = await res.json();
+    const st = data.status || {};
+    const notifBar = document.getElementById('install-notification-bar');
+    const badgePct = document.getElementById('install-badge-pct');
+    const stepLabel = document.getElementById('install-step-label');
+    const progBar = document.getElementById('install-progress-bar');
+    const activeBadge = document.getElementById('settings-active-model-badge');
+
+    const isEnhancing = (data.install_phase === 'enhancing' || data.install_phase === 'core_only') && 
+                        (st.status === 'running' || st.status === 'downloading' || st.status === 'installing' || st.status === 'seeding') &&
+                        st.is_alive;
+
+    if (activeBadge) {
+      const activeName = data.provider === 'deterministic' ? 'Deterministic Engine (0 MB)' :
+                         data.provider === 'ollama' ? 'Ollama Daemon' :
+                         (data.active_model_key || 'Auto');
+      activeBadge.textContent = `Active: ${activeName}`;
+    }
+
+    if (notifBar) {
+      if (isEnhancing) {
+        notifBar.classList.remove('hidden');
+        const pct = Math.min(100, Math.max(0, parseFloat(st.progress_pct || 0))).toFixed(1);
+        if (badgePct) badgePct.textContent = `${pct}%`;
+        if (stepLabel) stepLabel.textContent = st.step_label || 'Setting up background components...';
+        if (progBar) progBar.style.width = `${pct}%`;
+      } else {
+        if (!notifBar.classList.contains('hidden') && lastInstallStatus && lastInstallStatus.isEnhancing && !isEnhancing) {
+          // Just completed!
+          if (progBar) progBar.style.width = '100%';
+          if (stepLabel) stepLabel.textContent = 'Background enhancement completed! AI model ready.';
+          showToast('Background setup completed! AI Model is now active.', 'success', 4000);
+          setTimeout(() => {
+            notifBar.classList.add('hidden');
+          }, 3000);
+        } else {
+          notifBar.classList.add('hidden');
+        }
+      }
+    }
+
+    lastInstallStatus = { ...data, isEnhancing };
+
+    // If modal-settings is open, refresh model hub
+    const modalSettings = document.getElementById('modal-settings');
+    if (modalSettings && !modalSettings.classList.contains('hidden')) {
+      renderModelHubList(data);
+    }
+  } catch (e) {}
+}
+
+function renderModelHubList(installData) {
+  const container = document.getElementById('settings-model-hub-list');
+  if (!container) return;
+
+  const installedModels = installData.installed_models || {};
+  const activeKey = installData.active_model_key;
+  const currentProvider = installData.provider;
+  const downloads = installData.downloads || {};
+  const trackerStatus = (installData.status && installData.status.status === 'downloading') ? installData.status : null;
+
+  let html = '';
+
+  for (const [key, info] of Object.entries(MODEL_CATALOG_INFO)) {
+    const isDet = key === 'deterministic';
+    const isOllama = key === 'ollama';
+    const isDownloaded = isDet || isOllama || (installedModels[key] && installedModels[key].is_downloaded);
+    const isActive = (isDet && currentProvider === 'deterministic') ||
+                     (isOllama && currentProvider === 'ollama') ||
+                     (!isDet && !isOllama && currentProvider === 'gguf' && activeKey === key);
+
+    const activeDl = downloads[key] || (trackerStatus && trackerStatus.model_key === key ? trackerStatus : null);
+    const isDownloading = activeDl && (activeDl.status === 'downloading' || activeDl.status === 'running');
+    const dlPct = isDownloading ? (activeDl.percent || activeDl.progress_pct || 0) : 0;
+
+    let badgeHtml = '';
+    if (isActive) {
+      badgeHtml = '<span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">ACTIVE</span>';
+    } else if (isDownloading) {
+      badgeHtml = `<span class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">DOWNLOADING ${dlPct.toFixed(0)}%</span>`;
+    } else if (isDownloaded) {
+      badgeHtml = '<span class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">DOWNLOADED</span>';
+    } else {
+      badgeHtml = '<span class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/10 text-slate-400">AVAILABLE</span>';
+    }
+
+    let actionBtnHtml = '';
+    if (isActive) {
+      actionBtnHtml = '<button disabled class="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-mono border border-emerald-500/20 cursor-default opacity-80">In Use ✓</button>';
+    } else if (isDownloading) {
+      actionBtnHtml = `<div class="text-xs font-mono text-amber-300 flex items-center space-x-1.5"><i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i><span>${dlPct.toFixed(0)}%</span></div>`;
+    } else if (isDownloaded) {
+      actionBtnHtml = `<button onclick="switchActiveModel('${key}', '${info.provider}')" class="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 hover:text-white border border-cyan-500/40 text-xs font-mono transition cursor-pointer">Switch ↗</button>`;
+    } else {
+      actionBtnHtml = `<button onclick="downloadCatalogModel('${key}')" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/20 text-xs font-mono transition cursor-pointer flex items-center space-x-1"><i data-lucide="download" class="w-3 h-3"></i><span>Download</span></button>`;
+    }
+
+    html += `
+      <div class="p-3 rounded-xl ${isActive ? 'bg-cyan-950/40 border-cyan-500/40' : 'bg-white/[0.02] border-white/10'} border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 transition">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center space-x-2">
+            <span class="text-xs font-semibold text-white font-sans truncate">${info.name}</span>
+            ${badgeHtml}
+          </div>
+          <p class="text-[11px] text-slate-400 font-sans mt-0.5 line-clamp-1">${info.desc}</p>
+          <div class="flex items-center space-x-3 text-[10px] font-mono text-slate-400 mt-1">
+            <span>Disk: <strong class="text-slate-300 font-normal">${info.size}</strong></span>
+            <span>RAM: <strong class="text-slate-300 font-normal">${info.ram}</strong></span>
+          </div>
+          ${isDownloading ? `
+            <div class="w-full bg-white/10 rounded-full h-1.5 mt-2 overflow-hidden">
+              <div class="bg-gradient-to-r from-amber-400 to-cyan-400 h-full rounded-full transition-all duration-200" style="width: ${dlPct}%"></div>
+            </div>
+          ` : ''}
+        </div>
+        <div class="shrink-0 self-end sm:self-center">
+          ${actionBtnHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+  if (window.lucide) lucide.createIcons();
+}
+
+async function loadModelHub() {
+  try {
+    const res = await fetch('/api/install-status');
+    const data = await res.json();
+    renderModelHubList(data);
+  } catch (e) {}
+}
+
+async function switchActiveModel(modelKey, provider) {
+  playScifiSound('click');
+  try {
+    showToast(`Switching active engine to ${modelKey}...`, 'info', 2000);
+    const res = await fetch('/api/models/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_key: modelKey, provider: provider || 'gguf' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || `Switched to ${modelKey}`, 'success', 3000);
+      playScifiSound('success');
+      await checkInstallStatus();
+      await loadModelHub();
+    } else {
+      showToast(data.error || 'Failed to switch model', 'error');
+    }
+  } catch (e) {
+    showToast('Error switching model: ' + e.message, 'error');
+  }
+}
+
+async function downloadCatalogModel(modelKey) {
+  playScifiSound('click');
+  try {
+    showToast(`Initiating download for ${modelKey}...`, 'info', 2000);
+    const res = await fetch('/api/models/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_key: modelKey })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Downloading ${modelKey} weights in background...`, 'success', 3000);
+      await checkInstallStatus();
+      await loadModelHub();
+    } else {
+      showToast(data.error || 'Failed to start download', 'error');
+    }
+  } catch (e) {
+    showToast('Error starting download: ' + e.message, 'error');
+  }
+}
+

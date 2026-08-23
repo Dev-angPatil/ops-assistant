@@ -30,7 +30,8 @@ except ImportError:
 from pathlib import Path
 from ops_assistant.agent import OpsAssistantAgent, LlamaCppProvider, OllamaProvider
 from ops_assistant.model_manager.downloader import ModelDownloader
-from ops_assistant.config import get_config, is_setup_completed, set_setup_completed
+from ops_assistant.config import get_config, is_setup_completed, set_setup_completed, get_install_phase, finalize_enhancement
+from ops_assistant.install_tracker import get_tracker, InstallTracker
 from ops_assistant.collectors.hub import TelemetryHub
 from ops_assistant.collectors.distro_detector import DistroDetector, DistroInfo
 from ops_assistant.collectors.host_introspector import HostIntrospector, HostRuntimeCapabilities
@@ -202,6 +203,181 @@ def render_models_list(downloader: Optional[ModelDownloader] = None):
             status = "DOWNLOADED" if is_dl else "NOT DOWNLOADED"
             print(f"• {key}: {info['name']} [{status}] -> {info['local_path']}")
         print("")
+
+
+def render_install_status():
+    """Renders comprehensive progress status for core install and background enhancement tasks."""
+    tracker = get_tracker()
+    st = tracker.get_status()
+    cfg = get_config()
+
+    phase = st.get("phase", "complete")
+    status = st.get("status", "completed")
+    model_key = st.get("model_key") or cfg.get("pending_model_key") or cfg.get("active_model_key") or "deterministic"
+    progress_pct = float(st.get("progress_pct", 0.0))
+    is_alive = st.get("is_alive", False)
+    current_step = st.get("current_step", 3)
+    step_label = st.get("step_label", "")
+    error_msg = st.get("error")
+    log_file = st.get("log_file")
+    provider = cfg.get("provider", "deterministic")
+
+    # Step 1: Core Engine & CLI Wrapper
+    step1_status = "[bold green]✓ INSTALLED[/bold green]" if HAS_RICH else "✓ INSTALLED"
+    step1_desc = f"Deterministic Rule Engine (sub-50ms triage, 16 failure taxonomies, active: {provider})"
+
+    # Step 2: Inference Runtime (llama-cpp-python)
+    has_llama = False
+    try:
+        import llama_cpp  # noqa: F401
+        has_llama = True
+    except ImportError:
+        pass
+
+    if has_llama:
+        step2_status = "[bold green]✓ AVAILABLE[/bold green]" if HAS_RICH else "✓ AVAILABLE"
+        step2_desc = "Local GGUF in-process tensor acceleration runtime"
+    elif status == "installing" and current_step == 1 and is_alive:
+        step2_status = "[bold yellow]⟳ INSTALLING...[/bold yellow]" if HAS_RICH else "⟳ INSTALLING..."
+        step2_desc = "Compiling / fetching binary wheel in background"
+    elif model_key in ("deterministic", "ollama"):
+        step2_status = "[dim]○ NOT REQUIRED[/dim]" if HAS_RICH else "○ NOT REQUIRED"
+        step2_desc = "Not needed for deterministic rule engine or Ollama daemon"
+    else:
+        step2_status = "[dim yellow]○ OPTIONAL[/dim yellow]" if HAS_RICH else "○ OPTIONAL"
+        step2_desc = "Will use fast deterministic path if local compilation is skipped"
+
+    # Step 3: AI Model Weights
+    dl = ModelDownloader()
+    avail = dl.list_available_models()
+    is_model_dl = model_key in avail and avail[model_key]["is_downloaded"]
+
+    if model_key == "deterministic":
+        step3_status = "[bold green]✓ 0 MB (Deterministic)[/bold green]" if HAS_RICH else "✓ 0 MB (Deterministic)"
+        step3_desc = "Instant zero-RAM operational triage engine"
+    elif is_model_dl:
+        step3_status = f"[bold green]✓ READY ({model_key})[/bold green]" if HAS_RICH else f"✓ READY ({model_key})"
+        step3_desc = f"Locally cached in {avail[model_key]['local_path']}"
+    elif status == "downloading" and is_alive:
+        step3_status = f"[bold yellow]⟳ DOWNLOADING ({progress_pct:.1f}%)...[/bold yellow]" if HAS_RICH else f"⟳ DOWNLOADING ({progress_pct:.1f}%)"
+        step3_desc = f"Streaming weights from Hugging Face for '{model_key}'"
+    elif status == "interrupted":
+        step3_status = "[bold red]✗ INTERRUPTED[/bold red]" if HAS_RICH else "✗ INTERRUPTED"
+        step3_desc = "Download process terminated. Re-run 'ops-assistant --setup' or download directly"
+    else:
+        step3_status = f"[dim yellow]○ QUEUED ({model_key})[/dim yellow]" if HAS_RICH else f"○ QUEUED ({model_key})"
+        step3_desc = f"Pending download for '{model_key}'"
+
+    # Step 4: Distribution Knowledge Database
+    db = DistroKnowledgeBase()
+    installed_packs = db.list_installed_packs()
+    if installed_packs:
+        step4_status = f"[bold green]✓ SEEDED ({', '.join(installed_packs)})[/bold green]" if HAS_RICH else f"✓ SEEDED ({', '.join(installed_packs)})"
+        step4_desc = "Distribution failure signatures, commands, locks, and quirks loaded"
+    elif status == "seeding" and is_alive:
+        step4_status = "[bold yellow]⟳ SEEDING...[/bold yellow]" if HAS_RICH else "⟳ SEEDING..."
+        step4_desc = "Populating SQLite tables from modular pack directory"
+    else:
+        step4_status = "[dim yellow]○ PENDING[/dim yellow]" if HAS_RICH else "○ PENDING"
+        step4_desc = "Knowledge base seeding queued"
+
+    # Progress bar visual representation
+    filled_blocks = int(progress_pct / 5)
+    bar_str = "█" * filled_blocks + "░" * (20 - filled_blocks)
+
+    if HAS_RICH and console:
+        table = Table(title="Installation & Background Enhancement Component Status", border_style="cyan", show_header=True, header_style="bold cyan")
+        table.add_column("Component", style="bold white", width=26)
+        table.add_column("Status", justify="center", width=28)
+        table.add_column("Details", style="dim")
+
+        table.add_row("1. Core Engine & CLI", step1_status, step1_desc)
+        table.add_row("2. Inference Runtime", step2_status, step2_desc)
+        table.add_row("3. AI Model Weights", step3_status, step3_desc)
+        table.add_row("4. Distro Knowledge DB", step4_status, step4_desc)
+
+        console.print(table)
+
+        summary_lines = []
+        if phase == "complete" or status == "completed":
+            summary_lines.append(f"[bold green]✓ Overall Status: Installation is fully completed and ready for production.[/bold green]")
+        elif is_alive:
+            summary_lines.append(f"[bold yellow]⟳ Background Task Active:[/bold yellow] {step_label}")
+            summary_lines.append(f"Progress: [{bar_str}] [bold cyan]{progress_pct:.1f}%[/bold cyan]")
+        elif status == "interrupted":
+            summary_lines.append(f"[bold red]✗ Enhancement Interrupted:[/bold red] {error_msg or 'Background process died.'}")
+            summary_lines.append("Run [bold yellow]ops-assistant --setup[/bold yellow] or [bold yellow]ops-assistant --download-model <key>[/bold yellow] to finish setup.")
+        else:
+            summary_lines.append(f"[cyan]ℹ Status:[/cyan] {step_label}")
+
+        if log_file and Path(log_file).exists():
+            summary_lines.append(f"[dim]Log output available at: {log_file}[/dim]")
+
+        console.print(Panel("\n".join(summary_lines), border_style="green" if (phase == "complete" or status == "completed") else "yellow", expand=False))
+    else:
+        print("\n=== Installation & Background Enhancement Status ===")
+        print(f"1. Core Engine & CLI       : {step1_status} -> {step1_desc}")
+        print(f"2. Inference Runtime       : {step2_status} -> {step2_desc}")
+        print(f"3. AI Model Weights        : {step3_status} -> {step3_desc}")
+        print(f"4. Distro Knowledge DB     : {step4_status} -> {step4_desc}")
+        print(f"\nProgress: [{bar_str}] {progress_pct:.1f}%")
+        print(f"Details : {step_label}")
+        if error_msg:
+            print(f"Error   : {error_msg}")
+        if log_file:
+            print(f"Log file: {log_file}\n")
+
+
+def check_enhancement_and_notify():
+    """Checks background enhancement state, notifies operator, and auto-promotes downloaded model."""
+    tracker = get_tracker()
+    st = tracker.get_status()
+    cfg = get_config()
+
+    # 1. If enhancement finished in background but config is still in core_only or has pending model:
+    if tracker.is_complete() and (cfg.get("install_phase") != "complete" or cfg.get("pending_model_key")):
+        pending = cfg.get("pending_model_key") or st.get("model_key")
+        if pending and pending != "deterministic":
+            dl = ModelDownloader()
+            avail = dl.list_available_models()
+            if pending in avail and avail[pending]["is_downloaded"]:
+                from ops_assistant.hardware.advisor import HardwareAdvisor
+                adv = HardwareAdvisor()
+                prof = adv.profiler.profile()
+                caps = adv.generate_capability_matrix(prof)
+                finalize_enhancement(
+                    model_key=pending,
+                    model_path=avail[pending]["local_path"],
+                    hardware_tier=prof.compute_tier,
+                    threads=caps.recommended_threads,
+                    ctx_size=caps.recommended_ctx_size,
+                    gpu_layers=caps.recommended_gpu_layers,
+                    provider="gguf"
+                )
+                msg = f"[bold green]✓ Background Enhancement Complete:[/bold green] AI Model '[bold cyan]{pending}[/bold cyan]' is now active!"
+                if HAS_RICH and console:
+                    console.print(Panel(msg, border_style="green", expand=False))
+                else:
+                    print(f"✓ Background Enhancement Complete: AI Model '{pending}' is now active!")
+
+    # 2. If actively enhancing right now:
+    elif tracker.is_enhancing():
+        pct = tracker.get_model_progress()
+        mkey = st.get("model_key") or cfg.get("pending_model_key") or "AI Model"
+        msg = f"[bold yellow]⟳ Background Task Active:[/bold yellow] Setting up {mkey} ({pct:.1f}%)... Running with fast deterministic engine."
+        sub = "Check status: [bold cyan]ops-assistant --install-status[/bold cyan]"
+        if HAS_RICH and console:
+            console.print(f"{msg} ({sub})")
+        else:
+            print(f"⟳ Background Task Active: Setting up {mkey} ({pct:.1f}%)... Running with deterministic engine. (Check: ops-assistant --install-status)")
+
+    # 3. If interrupted:
+    elif st.get("status") == "interrupted":
+        err = st.get("error") or "Background task interrupted."
+        if HAS_RICH and console:
+            console.print(f"[bold red][!] {err}[/bold red] Run '[bold yellow]ops-assistant --setup[/bold yellow]' to resume.")
+        else:
+            print(f"[!] {err} Run 'ops-assistant --setup' to resume.")
 
 
 def render_distro_info():
@@ -1441,6 +1617,7 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
     active_distro = distro_override
     d_info = agent.distro_detector.detect(override_family=active_distro)
     render_banner(d_info.distro_name)
+    check_enhancement_and_notify()
 
     dl = ModelDownloader()
     if not is_setup_completed() and not dl.has_any_model_installed() and sys.stdin.isatty():
@@ -2396,6 +2573,7 @@ def main():
     parser.add_argument("--pack-list", action="store_true", help="List installed vs available modular distribution knowledge packs")
     parser.add_argument("--pack-add", type=str, help="Add / seed a specific distribution knowledge pack (e.g. debian, rhel, arch, alpine, suse)", default=None)
     parser.add_argument("--pack-sync-all", action="store_true", help="Synchronize all available modular distribution packs into local SQLite database")
+    parser.add_argument("--install-status", action="store_true", help="Display background installation and enhancement status")
     parser.add_argument("--list-models", action="store_true", help="List registered and downloaded edge GGUF models")
     parser.add_argument("--download-model", type=str, help="Download registered GGUF model (e.g. qwen2.5-coder-0.5b)", default=None)
     parser.add_argument("--inspect-health", action="store_true", help="Display full system health snapshot & PSI metrics")
@@ -2467,9 +2645,16 @@ def main():
         render_models_list()
         return
 
+    if args.install_status:
+        render_install_status()
+        return
+
     if args.download_model:
         download_model_cli(args.download_model)
         return
+
+    # Check background installation / enhancement state and notify operator if active
+    check_enhancement_and_notify()
 
     # Provider selection
     provider_setting: Optional[str] = args.provider
