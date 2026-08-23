@@ -1,0 +1,93 @@
+{
+  "service": {
+    "start": "sudo systemctl start {service}",
+    "stop": "sudo systemctl stop {service}",
+    "restart": "sudo systemctl restart {service}",
+    "reload": "sudo systemctl reload {service}",
+    "status": "sudo systemctl status {service}",
+    "enable": "sudo systemctl enable {service}",
+    "disable": "sudo systemctl disable {service}",
+    "mask": "sudo systemctl mask {service}",
+    "unmask": "sudo systemctl unmask {service}",
+    "is_active": "systemctl is-active {service}",
+    "is_enabled": "systemctl is-enabled {service}",
+    "list_failed": "systemctl list-units --state=failed",
+    "daemon_reload": "sudo systemctl daemon-reload",
+    "view_logs": "journalctl -u {service} -n 100 --no-pager",
+    "reset_failed": "sudo systemctl reset-failed {service}",
+    "show_property": "systemctl show {service} -p {property}"
+  },
+  "package": {
+    "install": "sudo dnf install -y {package}",
+    "update_index": "sudo dnf makecache",
+    "upgrade_system": "sudo dnf upgrade -y",
+    "remove": "sudo dnf remove -y {package}",
+    "purge": "sudo dnf remove -y {package}",
+    "autoremove": "sudo dnf autoremove -y",
+    "search": "dnf search {query}",
+    "info": "dnf info {package}",
+    "check_broken": "dnf check",
+    "fix_broken": "sudo dnf distro-sync -y && sudo rpm --rebuilddb",
+    "clean_cache": "sudo dnf clean all",
+    "list_installed": "rpm -qa",
+    "list_files": "rpm -ql {package}",
+    "find_file_owner": "rpm -qf {file_path}",
+    "verify_packages": "rpm -Va"
+  },
+  "firewall": {
+    "status": "sudo firewall-cmd --state && sudo firewall-cmd --list-all",
+    "enable": "sudo systemctl enable --now firewalld",
+    "disable": "sudo systemctl disable --now firewalld",
+    "open_port": "sudo firewall-cmd --permanent --add-port={port}/{proto} && sudo firewall-cmd --reload",
+    "close_port": "sudo firewall-cmd --permanent --remove-port={port}/{proto} && sudo firewall-cmd --reload",
+    "deny_port": "sudo firewall-cmd --permanent --remove-port={port}/{proto} && sudo firewall-cmd --reload",
+    "allow_source_port": "sudo firewall-cmd --permanent --add-rich-rule='rule family=\"ipv4\" source address=\"{source_ip}\" port port=\"{port}\" protocol=\"{proto}\" accept' && sudo firewall-cmd --reload",
+    "reload": "sudo firewall-cmd --reload",
+    "reset": "sudo firewall-cmd --complete-reload"
+  },
+  "security": {
+    "status": "sestatus",
+    "get_mode": "getenforce",
+    "set_permissive": "sudo setenforce 0",
+    "set_enforcing": "sudo setenforce 1",
+    "inspect_denials": "sudo ausearch -m avc -ts recent | audit2why",
+    "generate_allow_module": "sudo ausearch -m avc -ts recent | audit2allow -M {module_name} && sudo semodule -i {module_name}.pp",
+    "restore_contexts": "sudo restorecon -Rv {path}",
+    "list_booleans": "getsebool -a",
+    "set_boolean": "sudo setsebool -P {boolean_name} {boolean_value}"
+  },
+  "network": {
+    "status": "nmcli general status",
+    "show_interfaces": "nmcli device status",
+    "show_connections": "nmcli connection show",
+    "restart_service": "sudo systemctl restart NetworkManager",
+    "reload_connections": "sudo nmcli connection reload",
+    "up_connection": "sudo nmcli connection up '{connection}'",
+    "show_routes": "ip route show"
+  },
+  "boot": {
+    "update_grub": "sudo grub2-mkconfig -o /boot/grub2/grub.cfg",
+    "update_initramfs": "sudo dracut --regenerate-all --force",
+    "view_boot_logs": "journalctl -b --no-pager"
+  },
+  "storage": {
+    "check_mounts": "findmnt",
+    "inspect_fstab": "cat /etc/fstab",
+    "check_disk": "df -h",
+    "check_lvm": "sudo lvs && sudo pvs && sudo vgs"
+  },
+  "kernel": {
+    "list_modules": "lsmod",
+    "load_module": "sudo modprobe {module}",
+    "unload_module": "sudo modprobe -r {module}",
+    "sysctl_reload": "sudo sysctl --system",
+    "inspect_kernel_logs": "dmesg -T --level=err,warn"
+  },
+  "user_mgmt": {
+    "add_user": "sudo useradd -m {username}",
+    "remove_user": "sudo userdel -r {username}",
+    "add_to_sudo": "sudo usermod -aG wheel {username}",
+    "lock_user": "sudo passwd -l {username}",
+    "unlock_user": "sudo passwd -u {username}"
+  }
+}

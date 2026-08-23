@@ -42,6 +42,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "ollama_model": "llama3:8b",
     "auto_check_updates": True,
     "working_directory": str(Path.home()),
+    "distro_override": None,
 }
 
 
@@ -170,3 +171,17 @@ def set_working_dir(path: str) -> bool:
     if os.path.isdir(expanded):
         return _config_manager.set("working_directory", expanded)
     return False
+
+
+def get_distro_override() -> Optional[str]:
+    """Return the configured distribution override or None."""
+    cfg = get_config()
+    distro = cfg.get("distro_override")
+    return distro.strip() if isinstance(distro, str) and distro.strip() else None
+
+
+def set_distro_override(distro: Optional[str]) -> bool:
+    """Set or clear the distribution override."""
+    val = distro.strip() if isinstance(distro, str) and distro.strip() else None
+    return _config_manager.set("distro_override", val)
+

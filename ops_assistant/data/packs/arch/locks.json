@@ -1,0 +1,8 @@
+{
+  "lock_files": [
+    "/var/lib/pacman/db.lck"
+  ],
+  "lock_processes": [
+    "pacman"
+  ]
+}

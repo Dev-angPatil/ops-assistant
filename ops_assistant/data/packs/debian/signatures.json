@@ -1,0 +1,50 @@
+[
+  {
+    "id": "DPKG_LOCK_BLOCKED",
+    "pattern": "(Could not get lock /var/lib/dpkg/lock-frontend|Resource temporarily unavailable.*dpkg|Unable to acquire the dpkg frontend lock)",
+    "remediation": "sudo fuser -vk /var/lib/dpkg/lock-frontend 2>/dev/null; sudo dpkg --configure -a",
+    "explanation": "Another package management process (such as unattended-upgrades) is actively locking the dpkg frontend database."
+  },
+  {
+    "id": "DPKG_INTERRUPTED",
+    "pattern": "(dpkg was interrupted, you must manually run 'dpkg --configure -a'|Sub-process /usr/bin/dpkg returned an error code)",
+    "remediation": "sudo dpkg --configure -a && sudo apt-get install -f -y",
+    "explanation": "A prior package transaction was terminated abruptly before completing configuration hooks."
+  },
+  {
+    "id": "APT_HASH_SUM_MISMATCH",
+    "pattern": "Hash Sum mismatch|Hashes of expected file do not match",
+    "remediation": "sudo rm -rf /var/lib/apt/lists/* && sudo apt-get clean && sudo apt-get update",
+    "explanation": "Locally cached repository metadata or package archives became desynchronized with upstream mirrors."
+  },
+  {
+    "id": "APT_NO_PUBKEY",
+    "pattern": "NO_PUBKEY\\s+([A-F0-9]+)",
+    "remediation": "sudo gpg --keyserver keyserver.ubuntu.com --recv-keys {match_1} && sudo gpg --export --armor {match_1} | sudo tee /etc/apt/trusted.gpg.d/{match_1}.asc >/dev/null && sudo apt-get update",
+    "explanation": "A third-party APT repository is missing the corresponding GPG public signature verification key."
+  },
+  {
+    "id": "APT_RELEASE_EXPIRED",
+    "pattern": "Release file for .* is not valid yet \\(invalid for another.*\\)|Release file .* is expired",
+    "remediation": "sudo timedatectl set-ntp true && sudo apt-get update",
+    "explanation": "System clock skew caused APT to reject valid upstream Release files as expired or premature."
+  },
+  {
+    "id": "APT_UNMET_DEPENDENCIES",
+    "pattern": "(You have held broken packages|Unmet dependencies\\. Try 'apt --fix-broken install'|Depends: .* but it is not going to be installed)",
+    "remediation": "sudo apt-get install -f -y && sudo dpkg --configure -a",
+    "explanation": "Package dependency solver encountered mutually exclusive package versions or held broken packages."
+  },
+  {
+    "id": "APPARMOR_DENIED",
+    "pattern": "apparmor=\"DENIED\" operation=\"([^\"]+)\" profile=\"([^\"]+)\" name=\"([^\"]+)\"",
+    "remediation": "sudo aa-complain {match_2} || sudo aa-status",
+    "explanation": "AppArmor Mandatory Access Control profile denied access to the confined resource."
+  },
+  {
+    "id": "NETPLAN_SYNTAX_ERROR",
+    "pattern": "(netplan.*Invalid YAML|yaml-cpp.*error.*netplan|Error in network definition)",
+    "remediation": "sudo netplan generate --debug",
+    "explanation": "YAML indentation or syntax error in /etc/netplan/*.yaml prevented network configuration generation."
+  }
+]

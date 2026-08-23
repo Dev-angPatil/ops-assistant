@@ -81,11 +81,13 @@ class GeminiProvider(LLMProvider):
 
     def plan_observations(self, query: str, context: Dict[str, Any], tools_schema: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Ask LLM which tools to execute to investigate the issue."""
+        distro_guide = (context.get("distro_prompt_context") or "").strip()
+        distro_header = f"\nDistribution Rules & Context:\n{distro_guide}\n" if distro_guide else f"Distro: {context.get('distro_name')} ({context.get('family_id')})\n"
         prompt = (
             "You are an expert Linux SRE & Systems Diagnostics Agent. "
             "Given a user query about a Linux system issue, select 1 to 4 diagnostic tools to run in order to inspect the actual system state.\n\n"
             f"User Query: {query}\n"
-            f"Distro: {context.get('distro_name')} ({context.get('family_id')})\n"
+            f"{distro_header}"
             f"Target Subsystem / Service: {context.get('subsystem')}\n\n"
             f"Available Tools Schema:\n{json.dumps(tools_schema, indent=2)}\n\n"
             "Respond strictly in JSON format as a list of tool call objects:\n"
@@ -111,11 +113,13 @@ class GeminiProvider(LLMProvider):
 
     def synthesize_diagnosis(self, query: str, context: Dict[str, Any], observations: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Synthesize final diagnosis from observed evidence."""
+        distro_guide = (context.get("distro_prompt_context") or "").strip()
+        distro_header = f"\n=== Active Distribution Knowledge & Rules ===\n{distro_guide}\n" if distro_guide else f"Distro Environment: {context.get('distro_name', 'Linux')} (Init: {context.get('init_system', 'systemd')})\n"
         prompt = (
             "You are an expert Linux System Administrator and SRE. "
             "Analyze the sysadmin query along with live system telemetry and observed tool execution results.\n\n"
             f"User Query: {query}\n"
-            f"Distro Environment: {context.get('distro_name', 'Linux')} (Init: {context.get('init_system', 'systemd')})\n"
+            f"{distro_header}"
             f"Observed Evidence / Tool Execution Outputs:\n{json.dumps(observations, indent=2, default=str)}\n\n"
             "Synthesize an accurate, evidence-backed diagnosis and safe remediation plan.\n"
             "Respond strictly in valid JSON format matching this schema:\n"
@@ -218,8 +222,11 @@ class OllamaProvider(LLMProvider):
             return []
 
     def synthesize_diagnosis(self, query: str, context: Dict[str, Any], observations: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        distro_guide = (context.get("distro_prompt_context") or "").strip()
+        distro_sec = f"\n=== Active Distribution Rules ===\n{distro_guide}\n" if distro_guide else f"Distro: {context.get('distro_name', 'Linux')}\n"
         prompt = (
             "You are an expert Linux System Administrator AI. Diagnose the sysadmin query given system telemetry and tool evidence.\n"
+            f"{distro_sec}"
             f"Query: {query}\n"
             f"Evidence: {json.dumps(observations, default=str)}\n"
             "Respond strictly in JSON format with keys: symptom, root_cause, rationale, proposed_commands (list of [cmd, safety, risk, rationale]), confidence."
@@ -312,9 +319,12 @@ class LlamaCppProvider(LLMProvider):
             return None
 
     def synthesize_diagnosis(self, query: str, context: Dict[str, Any], observations: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        distro_guide = (context.get("distro_prompt_context") or "").strip()
+        distro_sec = f"\nDistribution Rules:\n{distro_guide}\n" if distro_guide else f"Distro: {context.get('distro_name', 'Linux')}\n"
         prompt = (
             "<|im_start|>system\n"
             "You are an expert Linux System Administrator AI. Diagnose the sysadmin query given system observations.\n"
+            f"{distro_sec}"
             "Respond ONLY in valid JSON format with keys:\n"
             "- 'symptom': string\n"
             "- 'root_cause': string\n"

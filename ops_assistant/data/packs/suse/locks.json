@@ -1,0 +1,10 @@
+{
+  "lock_files": [
+    "/var/run/zypp.pid"
+  ],
+  "lock_processes": [
+    "zypper",
+    "packagekitd",
+    "yast2"
+  ]
+}

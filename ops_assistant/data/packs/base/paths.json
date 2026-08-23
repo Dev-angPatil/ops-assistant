@@ -1,0 +1,12 @@
+{
+  "hosts": "/etc/hosts",
+  "resolv_conf": "/etc/resolv.conf",
+  "fstab": "/etc/fstab",
+  "passwd": "/etc/passwd",
+  "group": "/etc/group",
+  "shadow": "/etc/shadow",
+  "sudoers": "/etc/sudoers",
+  "sshd_config": "/etc/ssh/sshd_config",
+  "sysctl_conf": "/etc/sysctl.conf",
+  "environment": "/etc/environment"
+}

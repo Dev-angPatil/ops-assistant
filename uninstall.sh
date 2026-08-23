@@ -143,16 +143,21 @@ if [ -d "$DEFAULT_INSTALL_DIR" ]; then
     log_success "Removed $DEFAULT_INSTALL_DIR"
 fi
 
-# 7. Clean up ~/.ops_assistant config & cache if purge requested
+# 7. Clean up configuration, databases & cache if purge requested
 CONFIG_DIR="$HOME/.ops_assistant"
+XDG_CONFIG_DIR="$HOME/.config/ops_assistant"
 if [ "$PURGE" = true ]; then
     if [ -d "$CONFIG_DIR" ]; then
         rm -rf "$CONFIG_DIR"
         log_success "Purged configuration, models, and data directory: $CONFIG_DIR"
     fi
+    if [ -d "$XDG_CONFIG_DIR" ]; then
+        rm -rf "$XDG_CONFIG_DIR"
+        log_success "Purged SQLite databases and XDG configuration: $XDG_CONFIG_DIR"
+    fi
 else
-    if [ -d "$CONFIG_DIR" ]; then
-        log_info "Preserved data and configuration directory at $CONFIG_DIR."
+    if [ -d "$CONFIG_DIR" ] || [ -d "$XDG_CONFIG_DIR" ]; then
+        log_info "Preserved data and configuration directories at $CONFIG_DIR and $XDG_CONFIG_DIR."
         echo -e "  ${DIM}(To remove completely, re-run with: ./uninstall.sh --purge)${RESET}"
     fi
 fi

@@ -1,0 +1,23 @@
+[
+  {
+    "quirk_id": "ARCH_NO_PARTIAL_UPGRADES",
+    "title": "Partial upgrades break Arch rolling release systems",
+    "description": "Running pacman -Sy <pkg> without updating the entire system causes shared library ABI mismatches.",
+    "recommendation": "Always run pacman -Syu or pacman -S --needed.",
+    "do_not_do": "Never run pacman -Sy <package> directly."
+  },
+  {
+    "quirk_id": "ARCH_PACNEW_FILES",
+    "title": "Configuration files are saved as .pacnew instead of overwriting",
+    "description": "Upgrades never overwrite existing modified configs, producing .pacnew files.",
+    "recommendation": "Use DIFF tools or pacdiff to review and merge .pacnew files.",
+    "do_not_do": "Do not ignore accumulating .pacnew files as they contain critical new defaults."
+  },
+  {
+    "quirk_id": "AUR_USER_CONTEXT",
+    "title": "makepkg and AUR helpers must run as non-root user",
+    "description": "Arch Linux forbids makepkg or AUR helpers (yay/paru) from running as root.",
+    "recommendation": "Execute AUR builds under regular user privileges.",
+    "do_not_do": "Never run sudo makepkg or sudo yay."
+  }
+]

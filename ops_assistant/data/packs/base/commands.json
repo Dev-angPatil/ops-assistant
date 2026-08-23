@@ -1,0 +1,19 @@
+{
+  "category": "base",
+  "commands": {
+    "inspect_disk": "df -h",
+    "inspect_inodes": "df -i",
+    "inspect_ports": "ss -tulpn",
+    "inspect_processes": "ps aux",
+    "inspect_memory": "free -m",
+    "inspect_health": "uptime && cat /proc/loadavg",
+    "inspect_kernel": "uname -a",
+    "inspect_dmesg": "dmesg -T --level=err,crit",
+    "inspect_ip": "ip addr show",
+    "inspect_routes": "ip route show",
+    "inspect_mounts": "findmnt",
+    "kill_process": "sudo kill -15 {pid}",
+    "force_kill_process": "sudo kill -9 {pid}",
+    "test_ping": "ping -c 3 {host}"
+  }
+}

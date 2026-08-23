@@ -56,6 +56,21 @@ else
     RESET=""
 fi
 
+log_info() { echo -e "${CYAN}[*]${RESET} $1"; }
+log_success() { echo -e "${GREEN}[✓]${RESET} $1"; }
+log_warn() { echo -e "${YELLOW}[!]${RESET} $1"; }
+log_error() { echo -e "${RED}[✗]${RESET} $1"; }
+
+# Setup error trap
+cleanup_on_error() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo ""
+        log_error "Installation failed or was interrupted (exit code $exit_code)."
+    fi
+}
+trap cleanup_on_error EXIT
+
 REPO_URL="https://github.com/Dev-angPatil/01_LinuxOpsAssistant.git"
 DEFAULT_INSTALL_DIR="$HOME/.local/share/ops-assistant"
 BIN_DIR="$HOME/.local/bin"
@@ -74,6 +89,10 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --model)
+            if [[ -z "${2:-}" ]] || [[ "$2" =~ ^-- ]]; then
+                log_error "--model requires a model key (e.g. deterministic, qwen2.5-coder-0.5b)"
+                exit 1
+            fi
             CLI_MODEL="$2"
             shift 2
             ;;
@@ -91,10 +110,14 @@ while [[ $# -gt 0 ]]; do
             fi
             ;;
         --distro)
-            CLI_DISTRO="$2"
+            if [[ -z "${2:-}" ]] || [[ "$2" =~ ^-- ]]; then
+                log_error "--distro requires a target distribution profile (e.g. ubuntu, debian, rhel, arch, alpine, opensuse)"
+                exit 1
+            fi
+            CLI_DISTRO="$(echo "$2" | tr '[:upper:]' '[:lower:]')"
             shift 2
             ;;
-        --no-model)
+        --no-model|--skip-model-download)
             SKIP_MODEL_DOWNLOAD=true
             shift
             ;;
@@ -114,7 +137,9 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            shift
+            log_error "Unknown option: $1"
+            echo "Run './install.sh --help' to see valid options."
+            exit 1
             ;;
     esac
 done
@@ -134,11 +159,6 @@ print_banner() {
     echo -e "${CYAN}==============================================================================${RESET}"
     echo ""
 }
-
-log_info() { echo -e "${CYAN}[*]${RESET} $1"; }
-log_success() { echo -e "${GREEN}[✓]${RESET} $1"; }
-log_warn() { echo -e "${YELLOW}[!]${RESET} $1"; }
-log_error() { echo -e "${RED}[✗]${RESET} $1"; }
 
 print_banner
 
@@ -249,12 +269,14 @@ GPU_VRAM_MB=0
 GPU_TYPE="CPU"
 
 if command -v nvidia-smi >/dev/null 2>&1; then
-    NV_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1 || echo "")"
-    NV_VRAM="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n1 || echo 0)"
-    if [ -n "$NV_NAME" ]; then
-        GPU_NAME="NVIDIA $NV_NAME"
-        GPU_VRAM_MB=${NV_VRAM:-0}
-        GPU_TYPE="NVIDIA CUDA"
+    if nvidia-smi >/dev/null 2>&1; then
+        NV_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1 | tr -d '\r\n' || echo "")"
+        NV_VRAM="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n1 | tr -d '\r\n' || echo "0")"
+        if [[ "$NV_VRAM" =~ ^[0-9]+$ ]] && [ -n "$NV_NAME" ]; then
+            GPU_NAME="NVIDIA $NV_NAME"
+            GPU_VRAM_MB="$NV_VRAM"
+            GPU_TYPE="NVIDIA CUDA"
+        fi
     fi
 elif command -v rocm-smi >/dev/null 2>&1; then
     GPU_NAME="AMD Radeon ROCm"
@@ -264,6 +286,9 @@ elif command -v lspci >/dev/null 2>&1; then
     if [ -n "$LSPCI_GPU" ]; then
         GPU_NAME="$LSPCI_GPU"
     fi
+fi
+if [[ ! "$GPU_VRAM_MB" =~ ^[0-9]+$ ]]; then
+    GPU_VRAM_MB=0
 fi
 GPU_VRAM_GB=$(awk "BEGIN {printf \"%.1f\", $GPU_VRAM_MB / 1024}")
 
@@ -354,7 +379,7 @@ if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
                 $SUDO "$PKG_MGR" install -y python3 python3-pip git curl
                 ;;
             pacman)
-                $SUDO pacman -Sy --noconfirm python python-pip git curl
+                $SUDO pacman -S --needed --noconfirm python python-pip git curl
                 ;;
             apk)
                 $SUDO apk add python3 py3-pip git curl bash
@@ -383,7 +408,7 @@ else
     INSTALL_DIR="$DEFAULT_INSTALL_DIR"
     if [ -d "$INSTALL_DIR/.git" ]; then
         log_info "Updating existing repository at $INSTALL_DIR..."
-        git -C "$INSTALL_DIR" pull --ff-only || true
+        git -C "$INSTALL_DIR" pull --ff-only || log_warn "Could not fast-forward repository; continuing with existing files."
     else
         log_info "Cloning repository into $INSTALL_DIR..."
         mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -392,8 +417,12 @@ else
 fi
 
 # Set up Python Virtual Environment (avoids PEP 668 externally managed environment locks)
-VENV_DIR="$INSTALL_DIR/venv"
-if [ ! -d "$VENV_DIR" ]; then
+if [ -d "$INSTALL_DIR/.venv" ]; then
+    VENV_DIR="$INSTALL_DIR/.venv"
+elif [ -d "$INSTALL_DIR/venv" ]; then
+    VENV_DIR="$INSTALL_DIR/venv"
+else
+    VENV_DIR="$INSTALL_DIR/.venv"
     log_info "Creating isolated Python virtual environment at $VENV_DIR..."
     python3 -m venv "$VENV_DIR" || python3 -m venv --without-pip "$VENV_DIR"
 fi
@@ -535,14 +564,21 @@ fi
 # 6. Model Download & Configuration
 # ------------------------------------------------------------------------------
 echo ""
+export OPS_TARGET_DISTRO="$TARGET_DISTRO"
+export OPS_CHOSEN_MODEL="$CHOSEN_MODEL"
+export OPS_OLLAMA_MODEL="${OLLAMA_MODEL:-llama3:8b}"
+export OPS_PROVIDER="$PROVIDER"
+
 if [ "$PROVIDER" = "deterministic" ]; then
     log_success "Configuring Deterministic-Only Engine (0 MB download, sub-50ms latency, zero RAM overhead)."
     "$VENV_PY" -c "
+import os
 from ops_assistant.config import set_setup_completed, get_config, ConfigManager
 set_setup_completed(provider='deterministic')
 cfg = get_config()
-if '$TARGET_DISTRO':
-    cfg['distro_override'] = '$TARGET_DISTRO'
+target_distro = os.environ.get('OPS_TARGET_DISTRO', '').strip()
+if target_distro:
+    cfg['distro_override'] = target_distro
 ConfigManager().save(cfg)
 print('✓ Deterministic engine configured in config.json')
 "
@@ -556,16 +592,19 @@ elif [ "$PROVIDER" = "ollama" ]; then
             OLLAMA_MODEL="$USER_OLLAMA_MODEL"
         fi
     fi
+    export OPS_OLLAMA_MODEL="$OLLAMA_MODEL"
     "$VENV_PY" -c "
+import os
 from ops_assistant.config import set_setup_completed, get_config, ConfigManager
 cfg = get_config()
 cfg['provider'] = 'ollama'
-cfg['ollama_model'] = '$OLLAMA_MODEL'
+cfg['ollama_model'] = os.environ.get('OPS_OLLAMA_MODEL', 'llama3:8b')
 cfg['setup_completed'] = True
-if '$TARGET_DISTRO':
-    cfg['distro_override'] = '$TARGET_DISTRO'
+target_distro = os.environ.get('OPS_TARGET_DISTRO', '').strip()
+if target_distro:
+    cfg['distro_override'] = target_distro
 ConfigManager().save(cfg)
-print('✓ Configured Ollama with model: $OLLAMA_MODEL')
+print(f'✓ Configured Ollama with model: {cfg[\"ollama_model\"]}')
 "
 else
     # GGUF Model Download & Setup
@@ -581,12 +620,13 @@ else
     if [ "$SKIP_MODEL_DOWNLOAD" = false ]; then
         log_info "Checking / downloading model weights..."
         "$VENV_PY" -c "
+import os
 import sys
 from ops_assistant.model_manager.downloader import ModelDownloader
 from ops_assistant.config import set_setup_completed, get_config, ConfigManager
 from ops_assistant.hardware.advisor import MODEL_CATALOG, HardwareAdvisor
 
-mkey = '$CHOSEN_MODEL'
+mkey = os.environ.get('OPS_CHOSEN_MODEL', 'deterministic')
 dl = ModelDownloader()
 avail = dl.list_available_models()
 
@@ -621,13 +661,25 @@ set_setup_completed(
 )
 
 cfg = get_config()
-if '$TARGET_DISTRO':
-    cfg['distro_override'] = '$TARGET_DISTRO'
+target_distro = os.environ.get('OPS_TARGET_DISTRO', '').strip()
+if target_distro:
+    cfg['distro_override'] = target_distro
 ConfigManager().save(cfg)
 print('✓ Setup configuration persisted.')
 "
     fi
 fi
+
+# Initialize lean distro knowledge pack for the target host
+log_info "Initializing lean distribution knowledge pack for '$TARGET_DISTRO'..."
+"$VENV_PY" -c "
+import os
+from ops_assistant.db.distro_db import DistroKnowledgeBase
+db = DistroKnowledgeBase()
+db.seed_distro_packs(target)
+installed = db.list_installed_packs()
+print(f'✓ Lean knowledge database seeded with active profile: {installed}')
+"
 
 # ------------------------------------------------------------------------------
 # 7. Create Global CLI Launcher Wrapper & Shell Integrations

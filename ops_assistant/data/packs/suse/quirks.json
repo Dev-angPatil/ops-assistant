@@ -1,0 +1,23 @@
+[
+  {
+    "quirk_id": "ZYPPER_NON_INTERACTIVE_FLAG",
+    "title": "Zypper requires --non-interactive for automated scripts",
+    "description": "Zypper prompts interactively on conflicts or license agreements by default.",
+    "recommendation": "Always supply --non-interactive (or -n).",
+    "do_not_do": "Do not execute bare zypper in scripts."
+  },
+  {
+    "quirk_id": "SUSE_BTRFS_SNAPPER_DISK_USAGE",
+    "title": "Btrfs Snapper automatic snapshots can consume storage",
+    "description": "Automated pre/post snapshots on zypper transactions can exhaust free blocks on /.",
+    "recommendation": "Inspect snapshots with sudo snapper list and prune with snapper cleanup number.",
+    "do_not_do": "Do not delete snapshot subvolumes manually without using snapper."
+  },
+  {
+    "quirk_id": "SUSE_VENDOR_CHANGE_RESTRICTION",
+    "title": "Zypper restricts repository vendor change by default",
+    "description": "Packages will not automatically upgrade to versions from different repository vendors.",
+    "recommendation": "Supply --allow-vendor-change when intentionally upgrading from external repos (e.g. Packman).",
+    "do_not_do": "Do not assume packages automatically switch repository sources."
+  }
+]

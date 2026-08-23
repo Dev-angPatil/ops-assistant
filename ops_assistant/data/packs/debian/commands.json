@@ -1,0 +1,90 @@
+{
+  "service": {
+    "start": "sudo systemctl start {service}",
+    "stop": "sudo systemctl stop {service}",
+    "restart": "sudo systemctl restart {service}",
+    "reload": "sudo systemctl reload {service}",
+    "status": "sudo systemctl status {service}",
+    "enable": "sudo systemctl enable {service}",
+    "disable": "sudo systemctl disable {service}",
+    "mask": "sudo systemctl mask {service}",
+    "unmask": "sudo systemctl unmask {service}",
+    "is_active": "systemctl is-active {service}",
+    "is_enabled": "systemctl is-enabled {service}",
+    "list_failed": "systemctl list-units --state=failed",
+    "daemon_reload": "sudo systemctl daemon-reload",
+    "view_logs": "journalctl -u {service} -n 100 --no-pager",
+    "reset_failed": "sudo systemctl reset-failed {service}",
+    "show_property": "systemctl show {service} -p {property}"
+  },
+  "package": {
+    "install": "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {package}",
+    "update_index": "sudo apt-get update",
+    "upgrade_system": "sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y",
+    "remove": "sudo apt-get remove -y {package}",
+    "purge": "sudo apt-get purge -y {package}",
+    "autoremove": "sudo apt-get autoremove -y",
+    "search": "apt-cache search {query}",
+    "info": "apt-cache show {package}",
+    "check_broken": "dpkg --audit",
+    "fix_broken": "sudo dpkg --configure -a && sudo apt-get install -f -y",
+    "clean_cache": "sudo apt-get clean && sudo apt-get autoremove -y",
+    "list_installed": "dpkg -l",
+    "list_files": "dpkg -L {package}",
+    "find_file_owner": "dpkg -S {file_path}",
+    "hold": "sudo apt-mark hold {package}",
+    "unhold": "sudo apt-mark unhold {package}"
+  },
+  "firewall": {
+    "status": "sudo ufw status verbose",
+    "enable": "sudo ufw --force enable",
+    "disable": "sudo ufw disable",
+    "open_port": "sudo ufw allow {port}/{proto}",
+    "close_port": "sudo ufw delete allow {port}/{proto}",
+    "deny_port": "sudo ufw deny {port}/{proto}",
+    "allow_source_port": "sudo ufw allow from {source_ip} to any port {port} proto {proto}",
+    "reload": "sudo ufw reload",
+    "reset": "sudo ufw --force reset"
+  },
+  "security": {
+    "status": "sudo aa-status",
+    "enforce": "sudo aa-enforce {profile_path}",
+    "complain": "sudo aa-complain {profile_path}",
+    "disable": "sudo aa-disable {profile_path}",
+    "inspect_denials": "grep \"apparmor=\\\"DENIED\\\"\" /var/log/audit/audit.log /var/log/syslog 2>/dev/null || journalctl -k | grep -i apparmor"
+  },
+  "network": {
+    "apply": "sudo netplan apply",
+    "status": "networkctl status",
+    "restart_service": "sudo systemctl restart systemd-networkd",
+    "test_dns": "resolvectl status",
+    "flush_dns": "sudo resolvectl flush-caches",
+    "show_interfaces": "ip addr show",
+    "show_routes": "ip route show"
+  },
+  "boot": {
+    "update_grub": "sudo update-grub",
+    "update_initramfs": "sudo update-initramfs -u",
+    "view_boot_logs": "journalctl -b --no-pager"
+  },
+  "storage": {
+    "check_mounts": "findmnt",
+    "inspect_fstab": "cat /etc/fstab",
+    "check_disk": "df -h",
+    "check_inodes": "df -i"
+  },
+  "kernel": {
+    "list_modules": "lsmod",
+    "load_module": "sudo modprobe {module}",
+    "unload_module": "sudo modprobe -r {module}",
+    "sysctl_reload": "sudo sysctl --system",
+    "inspect_kernel_logs": "dmesg -T --level=err,warn"
+  },
+  "user_mgmt": {
+    "add_user": "sudo adduser --gecos '' {username}",
+    "remove_user": "sudo deluser --remove-home {username}",
+    "add_to_sudo": "sudo usermod -aG sudo {username}",
+    "lock_user": "sudo passwd -l {username}",
+    "unlock_user": "sudo passwd -u {username}"
+  }
+}

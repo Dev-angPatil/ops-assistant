@@ -32,6 +32,9 @@ from ops_assistant.agent import OpsAssistantAgent, LlamaCppProvider, OllamaProvi
 from ops_assistant.model_manager.downloader import ModelDownloader
 from ops_assistant.config import get_config, is_setup_completed, set_setup_completed
 from ops_assistant.collectors.hub import TelemetryHub
+from ops_assistant.collectors.distro_detector import DistroDetector, DistroInfo
+from ops_assistant.collectors.host_introspector import HostIntrospector, HostRuntimeCapabilities
+from ops_assistant.db.distro_db import DistroKnowledgeBase
 from ops_assistant.tools.executor import SafeExecutor
 from ops_assistant.tools.safety import CommandSafetyValidator
 from ops_assistant.models import DiagnosticReport, SafetyLevel, LogRecord
@@ -199,6 +202,107 @@ def render_models_list(downloader: Optional[ModelDownloader] = None):
             status = "DOWNLOADED" if is_dl else "NOT DOWNLOADED"
             print(f"• {key}: {info['name']} [{status}] -> {info['local_path']}")
         print("")
+
+
+def render_distro_info():
+    """Renders detailed table of active distro detection, installed packs, and live host capabilities."""
+    db = DistroKnowledgeBase()
+    detector = DistroDetector(db=db)
+    introspector = HostIntrospector()
+    distro_info = detector.detect()
+    caps = introspector.introspect()
+    installed_packs = db.list_installed_packs()
+    avail_packs = db.list_available_packs()
+
+    if HAS_RICH and console:
+        table = Table(title="Distribution & Live Host Runtime Capabilities", border_style="cyan", show_header=True, header_style="bold cyan")
+        table.add_column("Property", style="bold white", width=28)
+        table.add_column("Active Ground-Truth Value", style="green")
+
+        table.add_row("Detected OS / Distribution", f"{distro_info.distro_name} ([bold yellow]{distro_info.family_id}[/bold yellow])")
+        table.add_row("Kernel Release & Arch", f"{caps.kernel_release} ({caps.architecture})")
+        table.add_row("Init System (PID 1)", f"{caps.init_system} (systemd={caps.is_systemd}, openrc={caps.is_openrc})")
+        table.add_row("Container Environment", "Yes (Container/Namespace)" if caps.is_container else "No (Bare-Metal / VM)")
+        table.add_row("Installed Distro Packs", f"[bold green]{', '.join(installed_packs)}[/bold green]")
+        table.add_row("Available Distro Packs", f"{', '.join(avail_packs)}")
+        table.add_row("Available Package Managers", f"{', '.join(caps.available_package_managers) or 'none'}")
+        table.add_row("Available Firewall Tools", f"{', '.join(caps.available_firewalls) or 'none'}")
+        table.add_row("Active Security Subsystems", f"{', '.join(caps.available_security_modules) or 'none'}")
+        table.add_row("Default User Shell", f"{caps.default_shell}")
+        console.print(table)
+    else:
+        print("\n=== Distribution & Live Host Runtime Capabilities ===")
+        print(f"Detected OS / Distribution : {distro_info.distro_name} ({distro_info.family_id})")
+        print(f"Kernel Release & Arch      : {caps.kernel_release} ({caps.architecture})")
+        print(f"Init System (PID 1)        : {caps.init_system}")
+        print(f"Container Environment      : {caps.is_container}")
+        print(f"Installed Distro Packs     : {', '.join(installed_packs)}")
+        print(f"Available Distro Packs     : {', '.join(avail_packs)}")
+        print(f"Package Managers Available : {', '.join(caps.available_package_managers) or 'none'}")
+        print(f"Firewalls Available        : {', '.join(caps.available_firewalls) or 'none'}")
+        print(f"Security Modules           : {', '.join(caps.available_security_modules) or 'none'}")
+        print(f"Default User Shell         : {caps.default_shell}\n")
+
+
+def render_pack_list():
+    """Lists installed vs available modular distro knowledge packs."""
+    db = DistroKnowledgeBase()
+    installed = set(db.list_installed_packs())
+    available = db.list_available_packs()
+
+    if HAS_RICH and console:
+        table = Table(title="Modular Distro Knowledge Packs", border_style="cyan", show_header=True, header_style="bold cyan")
+        table.add_column("Pack Name", style="bold yellow")
+        table.add_column("Status", justify="center")
+        table.add_column("Description")
+
+        pack_descs = {
+            "debian": "Debian, Ubuntu, Linux Mint, Pop!_OS, Kali, BOSS Linux (apt, dpkg, ufw, AppArmor)",
+            "rhel": "RHEL, CentOS, Rocky Linux, AlmaLinux, Fedora, Amazon Linux (dnf, rpm, firewalld, SELinux)",
+            "arch": "Arch Linux, Manjaro, EndeavourOS (pacman, nftables, systemd-boot)",
+            "alpine": "Alpine Linux, PostmarketOS (apk, OpenRC, musl, awall)",
+            "suse": "openSUSE Leap/Tumbleweed, SLES (zypper, rpm, snapper, wicked, firewalld)"
+        }
+
+        for p in available:
+            is_inst = p in installed
+            st = "[bold green]INSTALLED[/bold green]" if is_inst else "[dim yellow]AVAILABLE[/dim yellow]"
+            desc = pack_descs.get(p, "Custom Distribution Knowledge Pack")
+            table.add_row(p, st, desc)
+        console.print(table)
+    else:
+        print("\n--- Modular Distro Knowledge Packs ---")
+        for p in available:
+            status = "INSTALLED" if p in installed else "AVAILABLE"
+            print(f"• {p:10s} [{status}]")
+        print("")
+
+
+def pack_add_cli(pack_name: str):
+    """Adds a distro knowledge pack to the local SQLite database."""
+    db = DistroKnowledgeBase()
+    success = db.add_pack(pack_name)
+    if success:
+        if HAS_RICH and console:
+            console.print(f"[bold green]✓ Successfully added and seeded '{pack_name}' distro knowledge pack into SQLite.[/bold green]")
+        else:
+            print(f"✓ Successfully added and seeded '{pack_name}' distro knowledge pack into SQLite.")
+    else:
+        if HAS_RICH and console:
+            console.print(f"[bold red]✗ Failed to add distro pack '{pack_name}'. Available packs: {', '.join(db.list_available_packs())}[/bold red]")
+        else:
+            print(f"✗ Failed to add distro pack '{pack_name}'. Available packs: {', '.join(db.list_available_packs())}")
+
+
+def pack_sync_all_cli():
+    """Syncs all available distro knowledge packs into the local SQLite database."""
+    db = DistroKnowledgeBase()
+    db.seed_distro_packs("all")
+    if HAS_RICH and console:
+        console.print(f"[bold green]✓ Successfully synchronized all {len(db.list_installed_packs())} distribution packs into local SQLite database.[/bold green]")
+    else:
+        print(f"✓ Successfully synchronized all {len(db.list_installed_packs())} distribution packs into local SQLite database.")
+
 
 
 def download_model_cli(model_key: str, downloader: Optional[ModelDownloader] = None):
@@ -2288,6 +2392,10 @@ def main():
     parser.add_argument("--distro", "-d", type=str, help="Simulate / override Linux distribution family (debian, rhel, arch, alpine, suse)", default=None)
     parser.add_argument("--provider", "-p", type=str, choices=["auto", "deterministic", "gguf", "ollama"], default="auto", help="Reasoning backend engine (auto, deterministic, gguf, ollama)")
     parser.add_argument("--model-path", type=str, help="Path to custom local GGUF model file", default=None)
+    parser.add_argument("--distro-info", action="store_true", help="Display active distro profile, installed packs, and live host runtime capabilities")
+    parser.add_argument("--pack-list", action="store_true", help="List installed vs available modular distribution knowledge packs")
+    parser.add_argument("--pack-add", type=str, help="Add / seed a specific distribution knowledge pack (e.g. debian, rhel, arch, alpine, suse)", default=None)
+    parser.add_argument("--pack-sync-all", action="store_true", help="Synchronize all available modular distribution packs into local SQLite database")
     parser.add_argument("--list-models", action="store_true", help="List registered and downloaded edge GGUF models")
     parser.add_argument("--download-model", type=str, help="Download registered GGUF model (e.g. qwen2.5-coder-0.5b)", default=None)
     parser.add_argument("--inspect-health", action="store_true", help="Display full system health snapshot & PSI metrics")
@@ -2310,6 +2418,22 @@ def main():
     parser.add_argument("--no-browser", action="store_true", help="Do not automatically open default web browser for GUI")
 
     args = parser.parse_args()
+
+    if args.distro_info:
+        render_distro_info()
+        return
+
+    if args.pack_list:
+        render_pack_list()
+        return
+
+    if args.pack_add:
+        pack_add_cli(args.pack_add)
+        return
+
+    if args.pack_sync_all:
+        pack_sync_all_cli()
+        return
 
     if args.setup:
         run_setup_wizard(force=True)

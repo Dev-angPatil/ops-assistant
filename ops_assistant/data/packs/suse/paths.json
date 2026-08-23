@@ -1,0 +1,10 @@
+{
+  "zypp_repos": "/etc/zypp/repos.d/",
+  "zypp_conf": "/etc/zypp/zypp.conf",
+  "snapper_conf": "/etc/snapper/configs/root",
+  "hosts": "/etc/hosts",
+  "resolv_conf": "/etc/resolv.conf",
+  "fstab": "/etc/fstab",
+  "sshd_config": "/etc/ssh/sshd_config",
+  "sudoers": "/etc/sudoers"
+}

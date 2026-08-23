@@ -1,0 +1,33 @@
+{
+  "family_id": "suse",
+  "display_name": "openSUSE / SLES Family",
+  "identification": {
+    "os_release_ids": [
+      "opensuse-leap",
+      "opensuse-tumbleweed",
+      "sles",
+      "sled",
+      "opensuse-microos"
+    ],
+    "os_release_id_like": [
+      "suse",
+      "opensuse"
+    ],
+    "detection_file": "/etc/SuSE-release"
+  },
+  "init_system": "systemd",
+  "default_firewall": "firewalld",
+  "security_subsystem": "apparmor",
+  "log_paths": {
+    "system": "/var/log/messages",
+    "auth": "/var/log/messages",
+    "package_manager": "/var/log/zypper.log",
+    "kernel": "/var/log/warn",
+    "audit": "/var/log/audit/audit.log"
+  },
+  "network_config_paths": [
+    "/etc/sysconfig/network/",
+    "/etc/wicked/config.xml",
+    "/etc/NetworkManager/system-connections/"
+  ]
+}

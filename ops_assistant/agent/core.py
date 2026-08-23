@@ -459,6 +459,8 @@ class ReActAgent:
         cpu_util = (100.0 - health.cpu.idle_pct) if health and health.cpu else 0.0
         ram_used = health.memory.used_percent if health and health.memory else 0.0
 
+        distro_prompt_context = self.distro_db.get_distro_prompt_context(distro_info.family_id)
+
         system_context = {
             "query": resolved_query,
             "raw_query": query,
@@ -467,6 +469,9 @@ class ReActAgent:
             "family_id": distro_info.family_id,
             "init_system": distro_info.init_system,
             "package_manager": distro_info.package_manager,
+            "default_firewall": distro_info.default_firewall,
+            "security_subsystem": distro_info.security_subsystem,
+            "distro_prompt_context": distro_prompt_context,
             "pressure_status": getattr(health, "pressure_status", "NORMAL"),
             "cpu_util": cpu_util,
             "ram_used_pct": ram_used,
@@ -874,8 +879,15 @@ class ReActAgent:
             d_info = self.distro_detector.detect(override_family=distro_override)
             pkg_mgr = d_info.package_manager
 
-            if pkg_mgr == "pacman":
-                cmd = f"sudo pacman -S --noconfirm {pkg}"
+            db_cmd = self.distro_db.get_command(d_info.family_id, "package", "install", package=pkg)
+            db_rb = self.distro_db.get_command(d_info.family_id, "package", "remove", package=pkg)
+
+            if db_cmd:
+                cmd = db_cmd
+                rb = db_rb
+                desc = f"Downloads and installs '{pkg}' package using {pkg_mgr} on {d_info.distro_name}."
+            elif pkg_mgr == "pacman":
+                cmd = f"sudo pacman -S --needed --noconfirm {pkg}"
                 rb = f"sudo pacman -Rns --noconfirm '{pkg}'"
                 desc = f"Downloads and installs the '{pkg}' software package using pacman on {d_info.distro_name}."
             elif pkg_mgr in ("apt", "apt-get"):
@@ -924,9 +936,15 @@ class ReActAgent:
             d_info = self.distro_detector.detect(override_family=distro_override)
             pkg_mgr = d_info.package_manager
 
-            if pkg_mgr == "pacman":
+            db_cmd = self.distro_db.get_command(d_info.family_id, "package", "remove", package=pkg)
+            db_rb = self.distro_db.get_command(d_info.family_id, "package", "install", package=pkg)
+
+            if db_cmd:
+                cmd = db_cmd
+                rb = db_rb
+            elif pkg_mgr == "pacman":
                 cmd = f"sudo pacman -Rns --noconfirm {pkg}"
-                rb = f"sudo pacman -S --noconfirm '{pkg}'"
+                rb = f"sudo pacman -S --needed --noconfirm '{pkg}'"
             elif pkg_mgr in ("apt", "apt-get"):
                 cmd = f"sudo apt-get remove -y {pkg}"
                 rb = f"sudo apt-get install -y '{pkg}'"
@@ -968,7 +986,11 @@ class ReActAgent:
             d_info = self.distro_detector.detect(override_family=distro_override)
             pkg_mgr = d_info.package_manager
 
-            if pkg_mgr == "pacman":
+            db_cmd = self.distro_db.get_command(d_info.family_id, "package", "upgrade") or self.distro_db.get_command(d_info.family_id, "package", "update")
+
+            if db_cmd:
+                cmd = db_cmd
+            elif pkg_mgr == "pacman":
                 cmd = "sudo pacman -Syu --noconfirm"
             elif pkg_mgr in ("apt", "apt-get"):
                 cmd = "sudo apt-get update && sudo apt-get upgrade -y"
@@ -1006,7 +1028,11 @@ class ReActAgent:
             d_info = self.distro_detector.detect(override_family=distro_override)
             pkg_mgr = d_info.package_manager
 
-            if pkg_mgr == "pacman":
+            db_cmd = self.distro_db.get_command(d_info.family_id, "package", "search", package=pkg)
+
+            if db_cmd:
+                cmd = db_cmd
+            elif pkg_mgr == "pacman":
                 cmd = f"pacman -Ss {pkg}"
             elif pkg_mgr in ("apt", "apt-get"):
                 cmd = f"apt-cache search {pkg}"

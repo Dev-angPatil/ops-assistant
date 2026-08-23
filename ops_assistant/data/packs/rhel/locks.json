@@ -1,0 +1,13 @@
+{
+  "lock_files": [
+    "/var/run/dnf.pid",
+    "/var/run/yum.pid",
+    "/var/lib/rpm/.rpm.lock"
+  ],
+  "lock_processes": [
+    "dnf",
+    "yum",
+    "rpm",
+    "PackageKit"
+  ]
+}

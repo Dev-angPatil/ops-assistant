@@ -1,0 +1,23 @@
+[
+  {
+    "quirk_id": "ALPINE_NO_SYSTEMD",
+    "title": "Alpine uses OpenRC instead of systemd",
+    "description": "systemctl and journalctl do not exist on Alpine Linux.",
+    "recommendation": "Use rc-service <svc> <action>, rc-update add <svc> default, and logread.",
+    "do_not_do": "Never suggest systemctl or journalctl on Alpine Linux."
+  },
+  {
+    "quirk_id": "ALPINE_MUSL_LIBC",
+    "title": "Alpine uses musl libc instead of GNU glibc",
+    "description": "Precompiled binaries linked dynamically against glibc will fail to execute with 'not found'.",
+    "recommendation": "Install gcompat or libc6-compat (apk add gcompat libc6-compat).",
+    "do_not_do": "Do not attempt to run standard glibc binaries without compatibility layers."
+  },
+  {
+    "quirk_id": "ALPINE_NO_BASH_DEFAULT",
+    "title": "Bash is not installed by default",
+    "description": "Alpine uses Busybox ash as the default /bin/sh shell.",
+    "recommendation": "Write standard POSIX sh scripts or install bash via apk add bash.",
+    "do_not_do": "Do not rely on bash-specific syntax (bashisms) without ensuring bash is present."
+  }
+]

@@ -8,13 +8,21 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
 DEFAULT_DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "distro_knowledge.json"
+DEFAULT_PACKS_DIR = Path(__file__).resolve().parent.parent / "data" / "packs"
+DEFAULT_PROMPTS_DIR = Path(__file__).resolve().parent.parent / "data" / "distro_prompts"
 DEFAULT_DB_PATH = Path.home() / ".config" / "ops_assistant" / "distro_knowledge.db"
 
 
 class DistroKnowledgeBase:
     """Manages the embedded SQLite database of Linux distribution specifications."""
 
-    def __init__(self, db_path: Optional[str] = None, data_source_path: Optional[str] = None):
+    def __init__(
+        self,
+        db_path: Optional[str] = None,
+        data_source_path: Optional[str] = None,
+        packs_dir: Optional[str] = None,
+        target_distro: Optional[str] = None
+    ):
         if db_path is None:
             self.db_path = str(DEFAULT_DB_PATH)
             os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
@@ -25,6 +33,9 @@ class DistroKnowledgeBase:
 
         self._lock = threading.Lock()
         self.data_source_path = str(data_source_path or DEFAULT_DATA_PATH)
+        self.packs_dir = Path(packs_dir or DEFAULT_PACKS_DIR)
+        self.target_distro = target_distro
+
         with self._lock:
             self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
@@ -38,12 +49,17 @@ class DistroKnowledgeBase:
             self._commands_cache: Dict[Tuple[str, str, str], str] = {}
             self._all_families_cache: Optional[List[str]] = None
             self._init_schema()
-            self._seed_if_empty()
+            self._seed_if_needed(target_distro=self.target_distro)
 
     def _init_schema(self) -> None:
         """Creates the required relational tables if they do not exist."""
         cursor = self.conn.cursor()
         cursor.executescript("""
+            CREATE TABLE IF NOT EXISTS distro_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS distro_profiles (
                 family_id TEXT PRIMARY KEY,
                 display_name TEXT NOT NULL,
@@ -85,19 +101,250 @@ class DistroKnowledgeBase:
                 FOREIGN KEY (family_id) REFERENCES distro_profiles(family_id),
                 UNIQUE(family_id, signature_id)
             );
+
+            CREATE TABLE IF NOT EXISTS distro_quirks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                family_id TEXT NOT NULL,
+                quirk_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                recommendation TEXT NOT NULL,
+                do_not_do TEXT NOT NULL,
+                FOREIGN KEY (family_id) REFERENCES distro_profiles(family_id),
+                UNIQUE(family_id, quirk_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS distro_filesystem (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                family_id TEXT NOT NULL,
+                path_key TEXT NOT NULL,
+                path_value TEXT NOT NULL,
+                description TEXT NOT NULL,
+                FOREIGN KEY (family_id) REFERENCES distro_profiles(family_id),
+                UNIQUE(family_id, path_key)
+            );
         """)
         self.conn.commit()
 
-    def _seed_if_empty(self) -> None:
-        """Seeds the database from JSON if the profiles table is empty."""
+    def _seed_if_needed(self, target_distro: Optional[str] = None) -> None:
+        """Seeds the database from packs directory or JSON if empty or outdated."""
         cursor = self.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM distro_profiles")
         count = cursor.fetchone()[0]
-        if count == 0 and os.path.exists(self.data_source_path):
-            self.seed_from_json(self.data_source_path)
+
+        cursor.execute("SELECT value FROM distro_meta WHERE key = 'data_version'")
+        row = cursor.fetchone()
+        db_version = row[0] if row else None
+
+        # Check if packs directory exists
+        if self.packs_dir.exists() and any(self.packs_dir.iterdir()):
+            if count == 0 or db_version != "2.0.0":
+                pack_to_seed = target_distro or "all"
+                self.seed_distro_packs(pack_to_seed)
+        elif os.path.exists(self.data_source_path):
+            if count == 0 or db_version != "2.0.0":
+                self.seed_from_json(self.data_source_path)
+
+    def seed_distro_packs(self, family_id: str = "all") -> None:
+        """Seeds the database from modular pack folders in ops_assistant/data/packs/."""
+        self._profiles_cache.clear()
+        self._commands_cache.clear()
+        self._all_families_cache = None
+
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM distro_profiles")
+        cursor.execute("DELETE FROM distro_commands")
+        cursor.execute("DELETE FROM distro_locks")
+        cursor.execute("DELETE FROM distro_error_signatures")
+        cursor.execute("DELETE FROM distro_quirks")
+        cursor.execute("DELETE FROM distro_filesystem")
+        cursor.execute("INSERT OR REPLACE INTO distro_meta (key, value) VALUES ('data_version', '2.0.0')")
+        cursor.execute("INSERT OR REPLACE INTO distro_meta (key, value) VALUES ('pack_mode', ?)", (family_id,))
+
+        # 1. Seed Base Linux Core Pack
+        base_dir = self.packs_dir / "base"
+        if base_dir.exists():
+            self._seed_base_pack(base_dir, cursor)
+
+        # 2. Determine target families to load
+        available = self.list_available_packs()
+        if family_id == "all":
+            targets = available
+        else:
+            # Match family or normalized alias
+            matched = self._normalize_family_target(family_id, available)
+            targets = [matched] if matched else available
+
+        for fid in targets:
+            f_dir = self.packs_dir / fid
+            if f_dir.exists() and f_dir.is_dir():
+                self._seed_single_pack(fid, f_dir, cursor)
+
+        self.conn.commit()
+
+    def _seed_base_pack(self, base_dir: Path, cursor: sqlite3.Cursor) -> None:
+        """Seeds common Linux core commands, signatures, and paths under 'base'."""
+        # Base commands
+        cmds_file = base_dir / "commands.json"
+        if cmds_file.exists():
+            try:
+                with open(cmds_file, "r", encoding="utf-8") as f:
+                    cdata = json.load(f)
+                category = cdata.get("category", "base")
+                for action, cmd in cdata.get("commands", {}).items():
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO distro_commands (family_id, category, action, command_template)
+                        VALUES ('base', ?, ?, ?)
+                    """, (category, action, cmd))
+            except Exception:
+                pass
+
+        # Base error signatures
+        sigs_file = base_dir / "signatures.json"
+        if sigs_file.exists():
+            try:
+                with open(sigs_file, "r", encoding="utf-8") as f:
+                    sigs = json.load(f)
+                for s in sigs:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO distro_error_signatures (
+                            family_id, signature_id, pattern, remediation, explanation
+                        ) VALUES ('base', ?, ?, ?, ?)
+                    """, (
+                        s.get("id", "BASE_ERR"),
+                        s.get("pattern", ""),
+                        s.get("remediation", ""),
+                        s.get("explanation", "")
+                    ))
+            except Exception:
+                pass
+
+        # Base filesystem paths
+        paths_file = base_dir / "paths.json"
+        if paths_file.exists():
+            try:
+                with open(paths_file, "r", encoding="utf-8") as f:
+                    pdata = json.load(f)
+                for pkey, pval in pdata.items():
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO distro_filesystem (family_id, path_key, path_value, description)
+                        VALUES ('base', ?, ?, 'Base Linux POSIX path')
+                    """, (pkey, str(pval)))
+            except Exception:
+                pass
+
+    def _seed_single_pack(self, fid: str, f_dir: Path, cursor: sqlite3.Cursor) -> None:
+        """Seeds a single distribution pack from its folder."""
+        # 1. Profile
+        prof_file = f_dir / "profile.json"
+        if prof_file.exists():
+            with open(prof_file, "r", encoding="utf-8") as f:
+                prof = json.load(f)
+            ident = prof.get("identification", {})
+            cursor.execute("""
+                INSERT OR REPLACE INTO distro_profiles (
+                    family_id, display_name, os_release_ids, os_release_id_like,
+                    detection_file, init_system, default_firewall, security_subsystem,
+                    log_paths, network_config_paths
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                fid,
+                prof.get("display_name", fid),
+                json.dumps(ident.get("os_release_ids", [fid])),
+                json.dumps(ident.get("os_release_id_like", [])),
+                ident.get("detection_file"),
+                prof.get("init_system", "systemd"),
+                prof.get("default_firewall", "iptables"),
+                prof.get("security_subsystem", "none"),
+                json.dumps(prof.get("log_paths", {})),
+                json.dumps(prof.get("network_config_paths", []))
+            ))
+
+        # 2. Commands
+        cmds_file = f_dir / "commands.json"
+        if cmds_file.exists():
+            with open(cmds_file, "r", encoding="utf-8") as f:
+                cmds_data = json.load(f)
+            for cat_name, actions in cmds_data.items():
+                for action, cmd in actions.items():
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO distro_commands (family_id, category, action, command_template)
+                        VALUES (?, ?, ?, ?)
+                    """, (fid, cat_name, action, cmd))
+
+        # 3. Locks
+        locks_file = f_dir / "locks.json"
+        if locks_file.exists():
+            with open(locks_file, "r", encoding="utf-8") as f:
+                locks_data = json.load(f)
+            for lfile in locks_data.get("lock_files", []):
+                cursor.execute("""
+                    INSERT INTO distro_locks (family_id, lock_file, lock_processes)
+                    VALUES (?, ?, ?)
+                """, (fid, lfile, json.dumps(locks_data.get("lock_processes", []))))
+
+        # 4. Signatures
+        sigs_file = f_dir / "signatures.json"
+        if sigs_file.exists():
+            with open(sigs_file, "r", encoding="utf-8") as f:
+                sigs = json.load(f)
+            for s in sigs:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO distro_error_signatures (
+                        family_id, signature_id, pattern, remediation, explanation
+                    ) VALUES (?, ?, ?, ?, ?)
+                """, (
+                    fid,
+                    s.get("id", s.get("pattern", "UNKNOWN")),
+                    s.get("pattern", ""),
+                    s.get("remediation", ""),
+                    s.get("explanation", "")
+                ))
+
+        # 5. Quirks
+        quirks_file = f_dir / "quirks.json"
+        if quirks_file.exists():
+            with open(quirks_file, "r", encoding="utf-8") as f:
+                quirks = json.load(f)
+            for q in quirks:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO distro_quirks (
+                        family_id, quirk_id, title, description, recommendation, do_not_do
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    fid,
+                    q.get("quirk_id", "UNKNOWN"),
+                    q.get("title", ""),
+                    q.get("description", ""),
+                    q.get("recommendation", ""),
+                    q.get("do_not_do", "")
+                ))
+
+        # 6. Filesystem Paths
+        paths_file = f_dir / "paths.json"
+        if paths_file.exists():
+            with open(paths_file, "r", encoding="utf-8") as f:
+                fs_paths = json.load(f)
+            for pkey, pval in fs_paths.items():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO distro_filesystem (family_id, path_key, path_value, description)
+                    VALUES (?, ?, ?, ?)
+                """, (fid, pkey, str(pval), f"Path for {pkey} on {fid}"))
+
+    def _normalize_family_target(self, target: str, available: List[str]) -> Optional[str]:
+        t = target.lower().strip()
+        if t in available:
+            return t
+        aliases = {
+            "ubuntu": "debian", "linuxmint": "debian", "pop": "debian", "kali": "debian", "boss": "debian", "bossos": "debian",
+            "centos": "rhel", "rocky": "rhel", "almalinux": "rhel", "fedora": "rhel", "ol": "rhel", "amzn": "rhel",
+            "manjaro": "arch", "endeavouros": "arch", "garuda": "arch",
+            "opensuse": "suse", "opensuse-leap": "suse", "opensuse-tumbleweed": "suse", "sles": "suse"
+        }
+        return aliases.get(t)
 
     def seed_from_json(self, json_path: str) -> None:
-        """Loads and populates tables from a structured JSON dataset."""
+        """Loads and populates tables from a legacy single JSON file."""
         self._profiles_cache.clear()
         self._commands_cache.clear()
         self._all_families_cache = None
@@ -105,8 +352,13 @@ class DistroKnowledgeBase:
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        version = data.get("version", "1.0.0")
+        updated_at = data.get("updated_at", "")
         families = data.get("families", {})
         cursor = self.conn.cursor()
+
+        cursor.execute("INSERT OR REPLACE INTO distro_meta (key, value) VALUES ('data_version', ?)", (version,))
+        cursor.execute("INSERT OR REPLACE INTO distro_meta (key, value) VALUES ('updated_at', ?)", (updated_at,))
 
         for fid, finfo in families.items():
             ident = finfo.get("identification", {})
@@ -136,42 +388,24 @@ class DistroKnowledgeBase:
                 json.dumps(net_paths)
             ))
 
-            # Seed service manager commands
-            for action, cmd in svc.get("commands", {}).items():
-                cursor.execute("""
-                    INSERT OR REPLACE INTO distro_commands (family_id, category, action, command_template)
-                    VALUES (?, ?, ?, ?)
-                """, (fid, "service", action, cmd))
+            # Commands
+            for cat_key, cat_val in finfo.items():
+                if isinstance(cat_val, dict) and "commands" in cat_val:
+                    category_name = cat_key.replace("_manager", "").replace("_subsystem", "")
+                    for action, cmd in cat_val.get("commands", {}).items():
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO distro_commands (family_id, category, action, command_template)
+                            VALUES (?, ?, ?, ?)
+                        """, (fid, category_name, action, cmd))
 
-            # Seed package manager commands
-            for action, cmd in pkg.get("commands", {}).items():
-                cursor.execute("""
-                    INSERT OR REPLACE INTO distro_commands (family_id, category, action, command_template)
-                    VALUES (?, ?, ?, ?)
-                """, (fid, "package", action, cmd))
-
-            # Seed firewall commands
-            for action, cmd in fw.get("commands", {}).items():
-                cursor.execute("""
-                    INSERT OR REPLACE INTO distro_commands (family_id, category, action, command_template)
-                    VALUES (?, ?, ?, ?)
-                """, (fid, "firewall", action, cmd))
-
-            # Seed security commands
-            for action, cmd in sec.get("commands", {}).items():
-                cursor.execute("""
-                    INSERT OR REPLACE INTO distro_commands (family_id, category, action, command_template)
-                    VALUES (?, ?, ?, ?)
-                """, (fid, "security", action, cmd))
-
-            # Seed lock files
+            # Locks
             for lfile in pkg.get("lock_files", []):
                 cursor.execute("""
                     INSERT INTO distro_locks (family_id, lock_file, lock_processes)
                     VALUES (?, ?, ?)
                 """, (fid, lfile, json.dumps(pkg.get("lock_processes", []))))
 
-            # Seed error signatures
+            # Signatures
             for sig in finfo.get("common_error_signatures", []):
                 cursor.execute("""
                     INSERT OR REPLACE INTO distro_error_signatures (
@@ -185,7 +419,81 @@ class DistroKnowledgeBase:
                     sig.get("explanation", "")
                 ))
 
+            # Quirks
+            for quirk in finfo.get("quirks_and_gotchas", []):
+                cursor.execute("""
+                    INSERT OR REPLACE INTO distro_quirks (
+                        family_id, quirk_id, title, description, recommendation, do_not_do
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    fid,
+                    quirk.get("quirk_id", "UNKNOWN"),
+                    quirk.get("title", ""),
+                    quirk.get("description", ""),
+                    quirk.get("recommendation", ""),
+                    quirk.get("do_not_do", "")
+                ))
+
+            # Paths
+            fs_paths = finfo.get("filesystem_paths", {})
+            for pkey, pval in fs_paths.items():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO distro_filesystem (family_id, path_key, path_value, description)
+                    VALUES (?, ?, ?, ?)
+                """, (fid, pkey, str(pval), f"Path for {pkey} on {fid}"))
+
         self.conn.commit()
+
+    def list_installed_packs(self) -> List[str]:
+        """Returns the list of distribution family IDs currently seeded in SQLite."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT family_id FROM distro_profiles")
+            return [row[0] for row in cursor.fetchall()]
+
+    def list_available_packs(self) -> List[str]:
+        """Scans the packs directory and returns all available distro pack IDs."""
+        if not self.packs_dir.exists():
+            return ["debian", "rhel", "arch", "alpine", "suse"]
+        packs = []
+        for p in self.packs_dir.iterdir():
+            if p.is_dir() and p.name != "base" and (p / "profile.json").exists():
+                packs.append(p.name)
+        return sorted(packs) if packs else ["debian", "rhel", "arch", "alpine", "suse"]
+
+    def add_pack(self, family_id: str) -> bool:
+        """Dynamically loads and seeds an additional distro pack into SQLite."""
+        with self._lock:
+            matched = self._normalize_family_target(family_id, self.list_available_packs())
+            if not matched:
+                return False
+            f_dir = self.packs_dir / matched
+            if not f_dir.exists():
+                return False
+
+            cursor = self.conn.cursor()
+            self._seed_single_pack(matched, f_dir, cursor)
+            self.conn.commit()
+            self._profiles_cache.clear()
+            self._commands_cache.clear()
+            self._all_families_cache = None
+            return True
+
+    def remove_pack(self, family_id: str) -> bool:
+        """Removes a distro pack from the SQLite database."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM distro_profiles WHERE family_id = ?", (family_id,))
+            cursor.execute("DELETE FROM distro_commands WHERE family_id = ?", (family_id,))
+            cursor.execute("DELETE FROM distro_locks WHERE family_id = ?", (family_id,))
+            cursor.execute("DELETE FROM distro_error_signatures WHERE family_id = ?", (family_id,))
+            cursor.execute("DELETE FROM distro_quirks WHERE family_id = ?", (family_id,))
+            cursor.execute("DELETE FROM distro_filesystem WHERE family_id = ?", (family_id,))
+            self.conn.commit()
+            self._profiles_cache.clear()
+            self._commands_cache.clear()
+            self._all_families_cache = None
+            return True
 
     def get_profile(self, family_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves profile configuration for a given distribution family with memory caching."""
@@ -214,7 +522,7 @@ class DistroKnowledgeBase:
             return profile
 
     def get_all_families(self) -> List[str]:
-        """Returns all supported distribution family IDs with memory caching."""
+        """Returns all supported distribution family IDs currently installed."""
         with self._lock:
             if self._all_families_cache is not None:
                 return self._all_families_cache
@@ -231,7 +539,7 @@ class DistroKnowledgeBase:
         action: str,
         **kwargs: Any
     ) -> Optional[str]:
-        """Resolves a parameterized command template for a distro family with caching."""
+        """Resolves a parameterized command template for a distro family with caching (falls back to 'base')."""
         with self._lock:
             cache_key = (family_id, category, action)
             if cache_key in self._commands_cache:
@@ -244,7 +552,14 @@ class DistroKnowledgeBase:
                 """, (family_id, category, action))
                 row = cursor.fetchone()
                 if not row:
-                    return None
+                    # Fallback to base category
+                    cursor.execute("""
+                        SELECT command_template FROM distro_commands
+                        WHERE family_id = 'base' AND (category = ? OR category = 'base') AND action = ?
+                    """, (category, action))
+                    row = cursor.fetchone()
+                    if not row:
+                        return None
                 template = row[0]
                 self._commands_cache[cache_key] = template
 
@@ -254,6 +569,16 @@ class DistroKnowledgeBase:
                 except KeyError:
                     return template
             return template
+
+    def get_commands_by_category(self, family_id: str, category: str) -> Dict[str, str]:
+        """Returns all available command templates for a specific category in a distro family."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT action, command_template FROM distro_commands
+                WHERE family_id = ? AND category = ?
+            """, (family_id, category))
+            return {row[0]: row[1] for row in cursor.fetchall()}
 
     def get_locks(self, family_id: str) -> List[Dict[str, Any]]:
         """Returns all package manager lock files and competing processes for a distro."""
@@ -267,12 +592,12 @@ class DistroKnowledgeBase:
             ]
 
     def get_error_signatures(self, family_id: str) -> List[Dict[str, Any]]:
-        """Returns common error patterns and remediations for a distro family."""
+        """Returns common error patterns and remediations for a distro family and base core."""
         with self._lock:
             cursor = self.conn.cursor()
             cursor.execute("""
                 SELECT signature_id, pattern, remediation, explanation
-                FROM distro_error_signatures WHERE family_id = ?
+                FROM distro_error_signatures WHERE family_id = ? OR family_id = 'base'
             """, (family_id,))
             rows = cursor.fetchall()
             return [
@@ -285,6 +610,33 @@ class DistroKnowledgeBase:
                 for r in rows
             ]
 
+    def get_quirks(self, family_id: str) -> List[Dict[str, Any]]:
+        """Returns distro-specific behavioral quirks, recommendations, and anti-patterns."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT quirk_id, title, description, recommendation, do_not_do
+                FROM distro_quirks WHERE family_id = ?
+            """, (family_id,))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "quirk_id": r["quirk_id"],
+                    "title": r["title"],
+                    "description": r["description"],
+                    "recommendation": r["recommendation"],
+                    "do_not_do": r["do_not_do"]
+                }
+                for r in rows
+            ]
+
+    def get_filesystem_paths(self, family_id: str) -> Dict[str, str]:
+        """Returns key configuration and system filesystem paths for a distro family."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT path_key, path_value FROM distro_filesystem WHERE family_id = ? OR family_id = 'base'", (family_id,))
+            return {r[0]: r[1] for r in cursor.fetchall()}
+
     def get_log_paths(self, family_id: str) -> Dict[str, str]:
         """Returns the dictionary of log paths for the distro family."""
         profile = self.get_profile(family_id)
@@ -296,6 +648,52 @@ class DistroKnowledgeBase:
             "package_manager": "/var/log/dpkg.log",
             "kernel": "/var/log/kern.log"
         }
+
+    def get_distro_prompt_context(self, family_id: str) -> str:
+        """Returns rich markdown system prompt context for LLM grounding for the given distro family."""
+        # 1. Check pack prompt.md
+        pack_prompt = self.packs_dir / family_id / "prompt.md"
+        if pack_prompt.exists():
+            try:
+                with open(pack_prompt, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception:
+                pass
+
+        # 2. Check legacy prompt directory
+        prompt_file = DEFAULT_PROMPTS_DIR / f"{family_id}.md"
+        if prompt_file.exists():
+            try:
+                with open(prompt_file, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception:
+                pass
+
+        # 3. Fallback: synthesize context from database
+        profile = self.get_profile(family_id)
+        if not profile:
+            return f"Distribution: {family_id} (Standard Linux environment)."
+
+        quirks = self.get_quirks(family_id)
+        fs = self.get_filesystem_paths(family_id)
+
+        lines = [
+            f"# Distribution Environment: {profile['display_name']} ({family_id})",
+            f"- **Init System**: {profile['init_system']}",
+            f"- **Firewall**: {profile['default_firewall']}",
+            f"- **Security Subsystem**: {profile['security_subsystem']}",
+            "",
+            "## Key Filesystem Paths:"
+        ]
+        for k, v in fs.items():
+            lines.append(f"- `{k}`: `{v}`")
+
+        if quirks:
+            lines.append("\n## Distribution Quirks & Rules:")
+            for q in quirks:
+                lines.append(f"- **{q['title']}**: {q['recommendation']} (Never: {q['do_not_do']})")
+
+        return "\n".join(lines)
 
     def close(self) -> None:
         """Closes the underlying SQLite database connection."""

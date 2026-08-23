@@ -1,0 +1,26 @@
+[
+  {
+    "id": "APK_LOCK_BLOCKED",
+    "pattern": "(/lib/apk/db/lock: Resource temporarily unavailable|apk: could not open database: Permission denied)",
+    "remediation": "sudo killall apk 2>/dev/null; sudo rm -f /lib/apk/db/lock",
+    "explanation": "APK lock is held by another running package process or was left behind."
+  },
+  {
+    "id": "MUSL_GLIBC_MISSING",
+    "pattern": "(not found.*glibc|cannot open shared object file: ld-linux|No such file or directory.*ld-linux)",
+    "remediation": "sudo apk add --no-cache gcompat libc6-compat",
+    "explanation": "Binary compiled against GNU libc cannot run on musl libc without compatibility packages."
+  },
+  {
+    "id": "APK_UNSATISFIABLE_CONSTRAINTS",
+    "pattern": "UNSATISFIABLE:\\s*(.*)",
+    "remediation": "sudo apk update && sudo apk add --no-cache --upgrade {package}",
+    "explanation": "Package dependency solver encountered unsatisfiable constraints in configured APK repositories."
+  },
+  {
+    "id": "OPENRC_SERVICE_CRASHED",
+    "pattern": "service (.*) is crashed",
+    "remediation": "sudo rc-service {match_1} restart && rc-status --crashed",
+    "explanation": "OpenRC detected that the service daemon PID exited abnormally."
+  }
+]

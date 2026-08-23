@@ -1,0 +1,15 @@
+{
+  "lock_files": [
+    "/var/lib/dpkg/lock",
+    "/var/lib/dpkg/lock-frontend",
+    "/var/lib/apt/lists/lock",
+    "/var/cache/apt/archives/lock"
+  ],
+  "lock_processes": [
+    "apt",
+    "apt-get",
+    "dpkg",
+    "unattended-upgr",
+    "software-properties-gtk"
+  ]
+}

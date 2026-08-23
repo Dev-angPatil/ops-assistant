@@ -1,0 +1,32 @@
+{
+  "family_id": "arch",
+  "display_name": "Arch Linux Family",
+  "identification": {
+    "os_release_ids": [
+      "arch",
+      "manjaro",
+      "endeavouros",
+      "garuda",
+      "artix"
+    ],
+    "os_release_id_like": [
+      "arch"
+    ],
+    "detection_file": "/etc/arch-release"
+  },
+  "init_system": "systemd",
+  "default_firewall": "nftables",
+  "security_subsystem": "none_or_apparmor",
+  "log_paths": {
+    "system": "journald",
+    "auth": "journald",
+    "package_manager": "/var/log/pacman.log",
+    "kernel": "journald",
+    "audit": "journald"
+  },
+  "network_config_paths": [
+    "/etc/systemd/network/",
+    "/etc/NetworkManager/system-connections/",
+    "/var/lib/iwd/"
+  ]
+}

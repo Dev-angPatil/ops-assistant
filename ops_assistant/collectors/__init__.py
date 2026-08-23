@@ -6,9 +6,11 @@ from ops_assistant.collectors.systemd_collector import SystemdCollector
 from ops_assistant.collectors.psi_collector import PSICollector, PSIMetrics, PSIStallValues
 from ops_assistant.collectors.hub import TelemetryHub
 from ops_assistant.collectors.distro_detector import DistroDetector, DistroInfo
+from ops_assistant.collectors.host_introspector import HostIntrospector, HostRuntimeCapabilities
 
 __all__ = [
     "ProcCollector", "JournalCollector", "SystemdCollector",
     "PSICollector", "PSIMetrics", "PSIStallValues", "TelemetryHub",
-    "DistroDetector", "DistroInfo"
+    "DistroDetector", "DistroInfo", "HostIntrospector", "HostRuntimeCapabilities"
 ]
+

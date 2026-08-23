@@ -116,11 +116,16 @@ graph TD
 ### 8. **Embedded SQLite Distro Knowledge Base (`ops_assistant.db.*`, `ops_assistant.collectors.distro_detector`)**
 - **Relational Tables**:
   - `distro_profiles`: System metadata across Debian/Ubuntu, RHEL/CentOS/Fedora, Arch Linux, Alpine Linux, and openSUSE/SLES.
-  - `distro_commands`: Parameterized command templates for package management, service control, firewalls, and security modules.
+  - `distro_commands`: Parameterized command templates across services, packages, firewalls, security, networking, bootloader, storage, kernel, and user management.
   - `distro_locks`: Advisory lock files and process collision signatures across all major distributions.
-  - `distro_error_signatures`: Distro-specific error patterns and deterministic recovery workflows.
+  - `distro_error_signatures`: Rich regex error patterns, plain-English explanations, and deterministic remediation workflows per distribution.
+  - `distro_quirks`: Behavioral gotchas, anti-patterns, and best practices per distro (e.g. PEP 668 on Debian, SELinux `mv` vs `cp` on RHEL, partial upgrade avoidance on Arch, musl glibc shim on Alpine, Snapper snapshots on SUSE).
+  - `distro_filesystem`: Filesystem mapping of configuration directories, repository configs, and security profile directories.
+  - `distro_meta`: Schema versioning and auto-sync tracking.
+- **Distro Prompt Grounding (`ops_assistant/data/distro_prompts/*.md`)**:
+  - Injects deep distribution guidelines and constraints into LLM reasoning loops (Gemini, Ollama, GGUF) and deterministic dispatchers.
 - **Dynamic Distro Detector**:
-  - Parses `/etc/os-release`, `/etc/issue`, and legacy fallbacks (`/etc/redhat-release`, `/etc/arch-release`, `/etc/alpine-release`).
+  - Parses `/etc/os-release`, `/etc/issue`, and legacy fallbacks (`/etc/redhat-release`, `/etc/arch-release`, `/etc/alpine-release`, `/etc/SuSE-release`, `/etc/boss-release`).
   - Adapts remediation commands automatically (e.g., OpenRC on Alpine, firewalld on RHEL/openSUSE, pacman on Arch, ufw on Ubuntu).
 
 ### 9. **3-Layer Intelligent AI Copilot Architecture (`ops_assistant.agent`)**

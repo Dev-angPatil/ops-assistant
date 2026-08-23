@@ -1,0 +1,82 @@
+{
+  "service": {
+    "start": "sudo systemctl start {service}",
+    "stop": "sudo systemctl stop {service}",
+    "restart": "sudo systemctl restart {service}",
+    "reload": "sudo systemctl reload {service}",
+    "status": "sudo systemctl status {service}",
+    "enable": "sudo systemctl enable {service}",
+    "disable": "sudo systemctl disable {service}",
+    "mask": "sudo systemctl mask {service}",
+    "unmask": "sudo systemctl unmask {service}",
+    "is_active": "systemctl is-active {service}",
+    "is_enabled": "systemctl is-enabled {service}",
+    "list_failed": "systemctl list-units --state=failed",
+    "daemon_reload": "sudo systemctl daemon-reload",
+    "view_logs": "journalctl -u {service} -n 100 --no-pager",
+    "reset_failed": "sudo systemctl reset-failed {service}",
+    "show_property": "systemctl show {service} -p {property}"
+  },
+  "package": {
+    "install": "sudo pacman -S --needed --noconfirm {package}",
+    "update_index": "sudo pacman -Sy",
+    "upgrade_system": "sudo pacman -Syu --noconfirm",
+    "remove": "sudo pacman -Rns --noconfirm {package}",
+    "purge": "sudo pacman -Rns --noconfirm {package}",
+    "autoremove": "sudo pacman -Rns --noconfirm $(pacman -Qdtq)",
+    "search": "pacman -Ss {query}",
+    "info": "pacman -Si {package}",
+    "check_broken": "pacman -Qk",
+    "fix_broken": "sudo pacman -Sy --noconfirm archlinux-keyring && sudo pacman -Syu --noconfirm",
+    "clean_cache": "sudo pacman -Sc --noconfirm",
+    "list_installed": "pacman -Qe",
+    "list_files": "pacman -Ql {package}",
+    "find_file_owner": "pacman -Qo {file_path}"
+  },
+  "firewall": {
+    "status": "sudo nft list ruleset",
+    "enable": "sudo systemctl enable --now nftables",
+    "disable": "sudo systemctl disable --now nftables",
+    "open_port": "sudo nft add rule inet filter input tcp dport {port} accept",
+    "close_port": "sudo nft delete rule inet filter input handle {handle}",
+    "deny_port": "sudo nft add rule inet filter input tcp dport {port} drop",
+    "allow_source_port": "sudo nft add rule inet filter input ip saddr {source_ip} tcp dport {port} accept",
+    "reload": "sudo nft -f /etc/nftables.conf",
+    "reset": "sudo nft flush ruleset"
+  },
+  "security": {
+    "status": "aa-status 2>/dev/null || echo 'AppArmor not active'",
+    "inspect_denials": "journalctl -k | grep -i apparmor"
+  },
+  "network": {
+    "status": "networkctl status",
+    "restart_service": "sudo systemctl restart systemd-networkd",
+    "test_dns": "resolvectl status",
+    "show_interfaces": "ip addr show",
+    "show_routes": "ip route show"
+  },
+  "boot": {
+    "regenerate_initramfs": "sudo mkinitcpio -P",
+    "update_grub": "sudo grub-mkconfig -o /boot/grub/grub.cfg",
+    "view_boot_logs": "journalctl -b --no-pager"
+  },
+  "storage": {
+    "check_mounts": "findmnt",
+    "inspect_fstab": "cat /etc/fstab",
+    "check_disk": "df -h"
+  },
+  "kernel": {
+    "list_modules": "lsmod",
+    "load_module": "sudo modprobe {module}",
+    "unload_module": "sudo modprobe -r {module}",
+    "sysctl_reload": "sudo sysctl --system",
+    "inspect_kernel_logs": "journalctl -k -b"
+  },
+  "user_mgmt": {
+    "add_user": "sudo useradd -m -G wheel {username}",
+    "remove_user": "sudo userdel -r {username}",
+    "add_to_sudo": "sudo usermod -aG wheel {username}",
+    "lock_user": "sudo passwd -l {username}",
+    "unlock_user": "sudo passwd -u {username}"
+  }
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "quirk_id": "RHEL_SERVICES_NOT_AUTO_STARTED",
+    "title": "Services are not automatically started upon package installation",
+    "description": "Unlike Debian/Ubuntu, installing a package on RHEL does not start or enable the systemd service.",
+    "recommendation": "Explicitly run sudo systemctl enable --now <service>.",
+    "do_not_do": "Do not assume the service is running after dnf install."
+  },
+  {
+    "quirk_id": "SELINUX_MV_VS_CP_CONTEXT",
+    "title": "SELinux context preservation on mv vs cp",
+    "description": "Moving files preserves the original context, while copying inherits the destination context.",
+    "recommendation": "Always run sudo restorecon -Rv <path> when moving config or web root files.",
+    "do_not_do": "Do not disable SELinux permanently when a context mismatch occurs."
+  },
+  {
+    "quirk_id": "FIREWALLD_PERMANENT_RELOAD",
+    "title": "Firewalld rules require --permanent and --reload",
+    "description": "firewall-cmd rules without --permanent are volatile and lost upon service restart or reboot.",
+    "recommendation": "Always supply --permanent and execute firewall-cmd --reload.",
+    "do_not_do": "Do not omit --permanent unless testing temporary rules intentionally."
+  }
+]

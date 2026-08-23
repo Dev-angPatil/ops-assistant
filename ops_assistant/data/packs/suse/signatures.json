@@ -1,0 +1,26 @@
+[
+  {
+    "id": "ZYPPER_LOCK_BLOCKED",
+    "pattern": "(System management is locked by the application with pid ([0-9]+)|/var/run/zypp.pid: Resource temporarily unavailable)",
+    "remediation": "sudo systemctl stop packagekit; sudo kill -9 {match_2} 2>/dev/null; sudo rm -f /var/run/zypp.pid",
+    "explanation": "PackageKit or another Zypper process is holding the system management lock."
+  },
+  {
+    "id": "ZYPPER_REPO_INVALID",
+    "pattern": "(Valid metadata not found at specified URL|Download \\(curl\\) error for .* repository)",
+    "remediation": "sudo zypper clean -a && sudo zypper ref -f",
+    "explanation": "Zypper repository metadata cache is corrupted or stale."
+  },
+  {
+    "id": "ZYPPER_VENDOR_CHANGE",
+    "pattern": "The following package update will NOT be installed because it requires a vendor change",
+    "remediation": "sudo zypper --non-interactive install --allow-vendor-change {package}",
+    "explanation": "Zypper prevented an automatic package vendor change without explicit authorization."
+  },
+  {
+    "id": "BTRFS_NO_SPACE_SNAPSHOT",
+    "pattern": "(No space left on device.*btrfs|BTRFS: error .* free space)",
+    "remediation": "sudo snapper cleanup number && sudo btrfs balance start -dusage=5 /",
+    "explanation": "Btrfs filesystem has exhausted free blocks due to accumulated Snapper snapshots."
+  }
+]

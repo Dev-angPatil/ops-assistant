@@ -1,0 +1,10 @@
+{
+  "apk_repos": "/etc/apk/repositories",
+  "openrc_runlevels": "/etc/runlevels/",
+  "init_d": "/etc/init.d/",
+  "conf_d": "/etc/conf.d/",
+  "hosts": "/etc/hosts",
+  "resolv_conf": "/etc/resolv.conf",
+  "fstab": "/etc/fstab",
+  "sshd_config": "/etc/ssh/sshd_config"
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "PORT_CONFLICT",
+    "pattern": "(Address already in use|bind: Address already in use|EADDRINUSE|failed to bind to (?:\\d+\\.\\d+\\.\\d+\\.\\d+|0\\.0\\.0\\.0|:::)\\s*:\\s*\\d+)",
+    "remediation": "sudo ss -tulpn | grep :{port} && sudo kill -15 {pid}",
+    "explanation": "A local socket collision occurred because another process is already bound and listening on the target TCP/UDP port."
+  },
+  {
+    "id": "PERMISSION_DENIED",
+    "pattern": "(Permission denied|EACCES|Operation not permitted|Access denied for user)",
+    "remediation": "ls -ld {path} && sudo chmod u+rw {path}",
+    "explanation": "POSIX file ownership, directory traversal (rx) permissions, or user capability bitmask prevented the action."
+  },
+  {
+    "id": "OOM_KILL",
+    "pattern": "(Out of memory: Kill process|invoked oom-killer|killed process \\d+.*total-vm|Memory cgroup out of memory)",
+    "remediation": "ps aux --sort=-%mem | head -n 10 && free -h",
+    "explanation": "Kernel Out-Of-Memory (OOM) killer terminated the process to protect kernel ring buffers from starvation."
+  },
+  {
+    "id": "DISK_EXHAUSTION",
+    "pattern": "(No space left on device|ENOSPC|write error: No space left on device)",
+    "remediation": "df -h && sudo du -sh /var/log/* /tmp/* 2>/dev/null | sort -hr | head -n 10",
+    "explanation": "Storage volume has exhausted available physical data blocks (0 remaining blocks)."
+  },
+  {
+    "id": "INODE_EXHAUSTION",
+    "pattern": "(No space left on device.*inode|cannot create directory: No space left on device|mkdir: cannot create directory.*No space left on device)",
+    "remediation": "df -i && sudo find /var/spool /tmp /var/log -xdev -type d -size +100k 2>/dev/null",
+    "explanation": "Filesystem inode table is 100% saturated despite remaining physical disk block capacity."
+  }
+]

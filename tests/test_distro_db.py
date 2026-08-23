@@ -48,7 +48,7 @@ class TestDistroKnowledgeBase(unittest.TestCase):
 
         # Arch install
         arch_cmd = self.db.get_command("arch", "package", "install", package="caddy")
-        self.assertIn("pacman -S --noconfirm caddy", arch_cmd)
+        self.assertIn("pacman -S --needed --noconfirm caddy", arch_cmd)
 
         # Alpine service start
         alp_cmd = self.db.get_command("alpine", "service", "start", service="nginx")
@@ -66,6 +66,30 @@ class TestDistroKnowledgeBase(unittest.TestCase):
         alp_sigs = self.db.get_error_signatures("alpine")
         self.assertTrue(any("APK_LOCK_BLOCKED" in s["id"] for s in alp_sigs))
         self.assertTrue(any("MUSL_GLIBC_MISSING" in s["id"] for s in alp_sigs))
+
+    def test_quirks_and_filesystem_paths(self):
+        # Quirks
+        deb_quirks = self.db.get_quirks("debian")
+        self.assertTrue(len(deb_quirks) >= 1)
+        self.assertTrue(any("PEP_668" in q["quirk_id"] for q in deb_quirks))
+
+        arch_quirks = self.db.get_quirks("arch")
+        self.assertTrue(any("PARTIAL" in q["quirk_id"] for q in arch_quirks))
+
+        # Filesystem paths
+        rhel_fs = self.db.get_filesystem_paths("rhel")
+        self.assertIn("selinux_conf", rhel_fs)
+        self.assertEqual(rhel_fs["selinux_conf"], "/etc/selinux/config")
+
+        # Category commands
+        deb_pkg_cmds = self.db.get_commands_by_category("debian", "package")
+        self.assertIn("install", deb_pkg_cmds)
+        self.assertIn("purge", deb_pkg_cmds)
+
+        # Distro prompt context
+        arch_prompt = self.db.get_distro_prompt_context("arch")
+        self.assertIn("Arch Linux", arch_prompt)
+        self.assertIn("pacman", arch_prompt)
 
 
 class TestDistroDetector(unittest.TestCase):

@@ -1,0 +1,23 @@
+[
+  {
+    "quirk_id": "DEBIAN_AUTO_START_SERVICES",
+    "title": "Automatic service start on package installation",
+    "description": "Debian/Ubuntu automatically starts daemons upon apt-get install.",
+    "recommendation": "If configuration is required before starting, prepare config files in advance or handle the initial failed start.",
+    "do_not_do": "Do not assume installed services are stopped."
+  },
+  {
+    "quirk_id": "PEP_668_EXTERNALLY_MANAGED",
+    "title": "PEP 668 externally-managed Python environment",
+    "description": "Debian 12+ and Ubuntu 23.04+ disable direct pip install into system Python.",
+    "recommendation": "Use python3 -m venv <dir> or apt-get install python3-<pkg>.",
+    "do_not_do": "Do not use --break-system-packages unless strictly isolated in a container."
+  },
+  {
+    "quirk_id": "DEB822_SOURCES_FORMAT",
+    "title": "Deb822 structured format in Ubuntu 24.04+",
+    "description": "Ubuntu 24.04 stores repository entries in /etc/apt/sources.list.d/*.sources rather than classic one-line format.",
+    "recommendation": "Check for .sources files when inspecting or managing repositories.",
+    "do_not_do": "Do not append classic one-line deb entries directly into /etc/apt/sources.list on 24.04+ without checking."
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "lock_files": [
+    "/lib/apk/db/lock"
+  ],
+  "lock_processes": [
+    "apk"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "dnf_repos": "/etc/yum.repos.d/",
+  "dnf_conf": "/etc/dnf/dnf.conf",
+  "selinux_conf": "/etc/selinux/config",
+  "hosts": "/etc/hosts",
+  "resolv_conf": "/etc/resolv.conf",
+  "fstab": "/etc/fstab",
+  "sshd_config": "/etc/ssh/sshd_config",
+  "sudoers": "/etc/sudoers"
+}

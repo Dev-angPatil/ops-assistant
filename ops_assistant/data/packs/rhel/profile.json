@@ -1,0 +1,35 @@
+{
+  "family_id": "rhel",
+  "display_name": "RHEL / CentOS / Rocky / Fedora Family",
+  "identification": {
+    "os_release_ids": [
+      "rhel",
+      "centos",
+      "rocky",
+      "almalinux",
+      "fedora",
+      "ol",
+      "amzn"
+    ],
+    "os_release_id_like": [
+      "rhel",
+      "centos",
+      "fedora"
+    ],
+    "detection_file": "/etc/redhat-release"
+  },
+  "init_system": "systemd",
+  "default_firewall": "firewalld",
+  "security_subsystem": "selinux",
+  "log_paths": {
+    "system": "/var/log/messages",
+    "auth": "/var/log/secure",
+    "package_manager": "/var/log/dnf.log",
+    "kernel": "/var/log/boot.log",
+    "audit": "/var/log/audit/audit.log"
+  },
+  "network_config_paths": [
+    "/etc/NetworkManager/system-connections/",
+    "/etc/sysconfig/network-scripts/"
+  ]
+}

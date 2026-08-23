@@ -1,0 +1,32 @@
+[
+  {
+    "id": "RPM_DB_CORRUPTED",
+    "pattern": "(cannot open Packages database in /var/lib/rpm|rpmdb: BDB\\d+|error: rpmdb: damaged header)",
+    "remediation": "sudo rm -f /var/lib/rpm/__db* && sudo rpm --rebuilddb",
+    "explanation": "The Berkeley DB RPM database is stale or corrupted."
+  },
+  {
+    "id": "SELINUX_DENIAL",
+    "pattern": "(SELinux is preventing .* from (read|write|open|execute|connect|getattr)|type=AVC msg=audit.*denied)",
+    "remediation": "sudo ausearch -m avc -ts recent | audit2why; sudo restorecon -Rv {path}",
+    "explanation": "SELinux MAC security context denied access to the file, port, or socket."
+  },
+  {
+    "id": "DNF_LOCK_BLOCKED",
+    "pattern": "(Waiting for process with pid \\d+|Another app is currently holding the dnf lock)",
+    "remediation": "sudo fuser -vk /var/run/dnf.pid 2>/dev/null; sudo dnf makecache",
+    "explanation": "PackageKit or another DNF process is currently holding the transaction lock."
+  },
+  {
+    "id": "DNF_MODULE_CONFLICT",
+    "pattern": "Modular dependency problem.*problem with installed package",
+    "remediation": "sudo dnf module reset -y {module} && sudo dnf distro-sync -y",
+    "explanation": "A conflicting DNF module stream version is enabled."
+  },
+  {
+    "id": "FIREWALLD_NOT_RUNNING",
+    "pattern": "FirewallD is not running",
+    "remediation": "sudo systemctl enable --now firewalld && sudo firewall-cmd --state",
+    "explanation": "The firewalld service is stopped or disabled."
+  }
+]

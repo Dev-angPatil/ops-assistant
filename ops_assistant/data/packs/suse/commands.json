@@ -1,0 +1,87 @@
+{
+  "service": {
+    "start": "sudo systemctl start {service}",
+    "stop": "sudo systemctl stop {service}",
+    "restart": "sudo systemctl restart {service}",
+    "reload": "sudo systemctl reload {service}",
+    "status": "sudo systemctl status {service}",
+    "enable": "sudo systemctl enable {service}",
+    "disable": "sudo systemctl disable {service}",
+    "mask": "sudo systemctl mask {service}",
+    "unmask": "sudo systemctl unmask {service}",
+    "is_active": "systemctl is-active {service}",
+    "is_enabled": "systemctl is-enabled {service}",
+    "list_failed": "systemctl list-units --state=failed",
+    "daemon_reload": "sudo systemctl daemon-reload",
+    "view_logs": "journalctl -u {service} -n 100 --no-pager",
+    "reset_failed": "sudo systemctl reset-failed {service}",
+    "show_property": "systemctl show {service} -p {property}"
+  },
+  "package": {
+    "install": "sudo zypper --non-interactive install {package}",
+    "update_index": "sudo zypper refresh",
+    "upgrade_system": "sudo zypper --non-interactive update",
+    "remove": "sudo zypper --non-interactive remove {package}",
+    "purge": "sudo zypper --non-interactive remove --clean-deps {package}",
+    "autoremove": "sudo zypper --non-interactive remove --clean-deps $(zypper packages --unneeded | awk -F'|' 'NR>4 {print $3}')",
+    "search": "zypper search {query}",
+    "info": "zypper info {package}",
+    "check_broken": "zypper verify",
+    "fix_broken": "sudo zypper clean -a && sudo zypper ref -f && sudo rpm --rebuilddb",
+    "clean_cache": "sudo zypper clean -a",
+    "list_installed": "rpm -qa",
+    "list_files": "rpm -ql {package}",
+    "find_file_owner": "rpm -qf {file_path}"
+  },
+  "firewall": {
+    "status": "sudo firewall-cmd --state && sudo firewall-cmd --list-all",
+    "enable": "sudo systemctl enable --now firewalld",
+    "disable": "sudo systemctl disable --now firewalld",
+    "open_port": "sudo firewall-cmd --permanent --add-port={port}/{proto} && sudo firewall-cmd --reload",
+    "close_port": "sudo firewall-cmd --permanent --remove-port={port}/{proto} && sudo firewall-cmd --reload",
+    "deny_port": "sudo firewall-cmd --permanent --remove-port={port}/{proto} && sudo firewall-cmd --reload",
+    "allow_source_port": "sudo firewall-cmd --permanent --add-rich-rule='rule family=\"ipv4\" source address=\"{source_ip}\" port port=\"{port}\" protocol=\"{proto}\" accept' && sudo firewall-cmd --reload",
+    "reload": "sudo firewall-cmd --reload",
+    "reset": "sudo firewall-cmd --complete-reload"
+  },
+  "security": {
+    "status": "sudo aa-status",
+    "enforce": "sudo aa-enforce {profile_path}",
+    "complain": "sudo aa-complain {profile_path}",
+    "disable": "sudo aa-disable {profile_path}",
+    "inspect_denials": "grep \"apparmor=\\\"DENIED\\\"\" /var/log/audit/audit.log /var/log/messages 2>/dev/null"
+  },
+  "network": {
+    "status": "sudo wicked ifstatus all",
+    "reload_service": "sudo wicked ifreload all",
+    "show_interfaces": "ip addr show",
+    "show_routes": "ip route show"
+  },
+  "boot": {
+    "update_bootloader": "sudo update-bootloader --refresh",
+    "update_grub": "sudo grub2-mkconfig -o /boot/grub2/grub.cfg",
+    "view_boot_logs": "journalctl -b --no-pager"
+  },
+  "storage": {
+    "check_mounts": "findmnt",
+    "inspect_fstab": "cat /etc/fstab",
+    "check_disk": "df -h",
+    "list_snapshots": "sudo snapper list",
+    "cleanup_snapshots": "sudo snapper cleanup number",
+    "rollback_snapshot": "sudo snapper rollback {snapshot_id}"
+  },
+  "kernel": {
+    "list_modules": "lsmod",
+    "load_module": "sudo modprobe {module}",
+    "unload_module": "sudo modprobe -r {module}",
+    "sysctl_reload": "sudo sysctl --system",
+    "inspect_kernel_logs": "dmesg -T --level=err,warn"
+  },
+  "user_mgmt": {
+    "add_user": "sudo useradd -m {username}",
+    "remove_user": "sudo userdel -r {username}",
+    "add_to_sudo": "sudo usermod -aG wheel {username}",
+    "lock_user": "sudo passwd -l {username}",
+    "unlock_user": "sudo passwd -u {username}"
+  }
+}

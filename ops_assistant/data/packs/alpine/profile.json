@@ -1,0 +1,24 @@
+{
+  "family_id": "alpine",
+  "display_name": "Alpine Linux Family",
+  "identification": {
+    "os_release_ids": [
+      "alpine"
+    ],
+    "os_release_id_like": [],
+    "detection_file": "/etc/alpine-release"
+  },
+  "init_system": "openrc",
+  "default_firewall": "awall",
+  "security_subsystem": "pax_musl_hardened",
+  "log_paths": {
+    "system": "/var/log/messages",
+    "auth": "/var/log/messages",
+    "package_manager": "/var/log/apk.log",
+    "kernel": "dmesg",
+    "audit": "/var/log/messages"
+  },
+  "network_config_paths": [
+    "/etc/network/interfaces"
+  ]
+}

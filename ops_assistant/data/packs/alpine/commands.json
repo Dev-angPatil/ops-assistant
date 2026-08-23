@@ -1,0 +1,76 @@
+{
+  "service": {
+    "start": "sudo rc-service {service} start",
+    "stop": "sudo rc-service {service} stop",
+    "restart": "sudo rc-service {service} restart",
+    "reload": "sudo rc-service {service} reload",
+    "status": "sudo rc-service {service} status",
+    "enable": "sudo rc-update add {service} default",
+    "disable": "sudo rc-update del {service} default",
+    "mask": "sudo rc-update del {service} default",
+    "unmask": "sudo rc-update add {service} default",
+    "is_active": "rc-service {service} status",
+    "is_enabled": "rc-update show | grep {service}",
+    "list_failed": "rc-status --crashed",
+    "daemon_reload": "sudo rc-update -u",
+    "view_logs": "logread | grep {service}"
+  },
+  "package": {
+    "install": "sudo apk add --no-cache {package}",
+    "update_index": "sudo apk update",
+    "upgrade_system": "sudo apk upgrade",
+    "remove": "sudo apk del {package}",
+    "purge": "sudo apk del --purge {package}",
+    "autoremove": "sudo apk del --purge $(apk info -r {package} 2>/dev/null)",
+    "search": "apk search {query}",
+    "info": "apk info {package}",
+    "check_broken": "apk fix --dry-run",
+    "fix_broken": "sudo apk fix --purge",
+    "clean_cache": "sudo apk cache clean && sudo rm -rf /var/cache/apk/*",
+    "list_installed": "apk info",
+    "list_files": "apk info -L {package}",
+    "find_file_owner": "apk info --who-owns {file_path}"
+  },
+  "firewall": {
+    "status": "sudo awall list",
+    "enable": "sudo awall activate -f",
+    "disable": "sudo rc-service iptables stop",
+    "open_port": "sudo awall enable custom-rule && sudo awall activate",
+    "close_port": "sudo awall disable custom-rule && sudo awall activate",
+    "deny_port": "sudo awall disable custom-rule && sudo awall activate",
+    "allow_source_port": "sudo awall enable custom-rule && sudo awall activate",
+    "reload": "sudo awall activate",
+    "reset": "sudo awall flush"
+  },
+  "security": {
+    "status": "dmesg | grep -i pax 2>/dev/null || echo 'musl hardened'",
+    "inspect_denials": "dmesg | grep -i 'pax\\|denied'"
+  },
+  "network": {
+    "restart_service": "sudo rc-service networking restart",
+    "show_interfaces": "ip addr show",
+    "show_routes": "ip route show"
+  },
+  "boot": {
+    "view_boot_logs": "dmesg"
+  },
+  "storage": {
+    "check_mounts": "mount",
+    "inspect_fstab": "cat /etc/fstab",
+    "check_disk": "df -h",
+    "commit_changes": "sudo lbu commit -d"
+  },
+  "kernel": {
+    "list_modules": "lsmod",
+    "load_module": "sudo modprobe {module}",
+    "unload_module": "sudo modprobe -r {module}",
+    "inspect_kernel_logs": "dmesg"
+  },
+  "user_mgmt": {
+    "add_user": "sudo adduser -D {username}",
+    "remove_user": "sudo deluser --remove-home {username}",
+    "add_to_sudo": "sudo addgroup {username} wheel",
+    "lock_user": "sudo passwd -l {username}",
+    "unlock_user": "sudo passwd -u {username}"
+  }
+}

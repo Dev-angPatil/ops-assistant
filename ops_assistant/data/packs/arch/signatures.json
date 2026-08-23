@@ -1,0 +1,26 @@
+[
+  {
+    "id": "PACMAN_LOCK_BLOCKED",
+    "pattern": "(unable to lock database|error: failed to init transaction \\(unable to lock database\\)|/var/lib/pacman/db.lck: File exists)",
+    "remediation": "pgrep pacman >/dev/null && echo 'Pacman is running' || sudo rm -f /var/lib/pacman/db.lck",
+    "explanation": "Pacman lock file exists from a background or interrupted pacman command."
+  },
+  {
+    "id": "PACMAN_PGP_ERROR",
+    "pattern": "(invalid or corrupted package \\(PGP signature\\)|error: .* signature from .* is unknown trust|key .* could not be looked up remotely)",
+    "remediation": "sudo pacman -Sy --noconfirm archlinux-keyring && sudo pacman-key --refresh-keys",
+    "explanation": "The local Arch Linux keyring is out of date and cannot verify package signatures."
+  },
+  {
+    "id": "PACMAN_FILE_EXISTS_CONFLICT",
+    "pattern": "error: failed to commit transaction \\(conflicting files\\):\\s*(.*) exists in filesystem",
+    "remediation": "sudo pacman -Qo {match_1} 2>/dev/null || sudo pacman -S --overwrite '{match_1}' {package}",
+    "explanation": "An untracked file exists on the filesystem that collides with the package being installed."
+  },
+  {
+    "id": "ARCH_MODULE_NOT_FOUND_AFTER_KERNEL_UPDATE",
+    "pattern": "modprobe: FATAL: Module (.*) not found in directory /lib/modules",
+    "remediation": "echo 'Kernel was updated. A system reboot is required to load new modules.' && uname -r",
+    "explanation": "Kernel modules for the currently running kernel were removed during a live kernel package upgrade."
+  }
+]
