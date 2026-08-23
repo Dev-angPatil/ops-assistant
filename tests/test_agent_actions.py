@@ -141,6 +141,63 @@ class TestAgentActions(unittest.TestCase):
         res_rb = executor.rollback("echo 'rollback_exec'")
         self.assertEqual(res_rb["returncode"], 0)
 
+    def test_new_tool_signatures_and_operations(self):
+        from ops_assistant.tools import (
+            storage_ops, download_ops, process_ops, system_ops,
+            network_ops, docker_ops, log_ops
+        )
+        # 1. clean_trash
+        trash_res = storage_ops.clean_trash(dry_run=True)
+        self.assertTrue(trash_res["success"])
+        self.assertTrue(trash_res["dry_run"])
+
+        # 2. download_file with dest_path and dry_run
+        dl_res = download_ops.download_file("https://example.com/test.tar.gz", dest_path="/tmp/test.tar.gz", dry_run=True)
+        self.assertTrue(dl_res["success"])
+        self.assertTrue(dl_res["dry_run"])
+        self.assertEqual(dl_res["filename"], "test.tar.gz")
+
+        # 3. manage_service dispatchers
+        svc_res = process_ops.manage_service("status", "nonexistent-test-service")
+        self.assertIn("success", svc_res)
+
+        sys_svc_res = system_ops.manage_service("status", "nonexistent-test-service")
+        self.assertIn("success", sys_svc_res)
+
+        # 4. system_ops diagnostics
+        sys_info = system_ops.get_system_info()
+        self.assertTrue(sys_info["success"])
+        self.assertIn("hostname", sys_info)
+
+        uptime_res = system_ops.get_uptime()
+        self.assertTrue(uptime_res["success"])
+
+        users_res = system_ops.get_logged_in_users()
+        self.assertIn("sessions", users_res)
+
+        # 5. network_ops manage_firewall
+        fw_status = network_ops.manage_firewall("status")
+        self.assertIn("success", fw_status)
+
+        # 6. docker_ops prune_system alias
+        self.assertTrue(callable(docker_ops.prune_system))
+
+        # 7. log_ops query_logs & tail_log with keyword args
+        q_logs = log_ops.query_logs(unit="kernel", lines=5)
+        self.assertIn("lines", q_logs)
+
+        tail_res = log_ops.tail_log(service="systemd", lines=5)
+        self.assertIn("lines", tail_res)
+
+    def test_safety_enhancements(self):
+        # Base64 non-obfuscated commands should not misclassify
+        val = CommandSafetyValidator.validate("sudo systemctl status nginx")
+        self.assertEqual(val.level, SafetyLevel.READ_ONLY)
+
+        # Quote-contained redirection should not trigger destructive flag
+        val_quoted = CommandSafetyValidator.validate("echo '> /etc/passwd'")
+        self.assertNotEqual(val_quoted.level, SafetyLevel.DESTRUCTIVE)
+
 
 if __name__ == "__main__":
     unittest.main()

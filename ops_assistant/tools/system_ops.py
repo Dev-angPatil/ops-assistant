@@ -243,3 +243,50 @@ def clean_package_cache(dry_run: bool = True) -> Dict[str, Any]:
         "message": f"Successfully cleaned {pkg_mgr} cache." if rc == 0 else stderr,
         "error": stderr if rc != 0 else None
     }
+
+
+def manage_service(action: str, service: str) -> Dict[str, Any]:
+    """Manage service state (delegates to process_ops)."""
+    from ops_assistant.tools.process_ops import manage_service as _manage_svc
+    return _manage_svc(action=action, service=service)
+
+
+def get_system_info() -> Dict[str, Any]:
+    """Retrieve system uname, hostname, architecture, and kernel release."""
+    import platform
+    rc, stdout, stderr = _run_cmd(["uname", "-a"])
+    return {
+        "success": True,
+        "hostname": platform.node(),
+        "system": platform.system(),
+        "release": platform.release(),
+        "version": platform.version(),
+        "machine": platform.machine(),
+        "raw_uname": stdout.strip() if rc == 0 else platform.platform(),
+        "python_version": platform.python_version()
+    }
+
+
+def get_uptime() -> Dict[str, Any]:
+    """Retrieve system uptime statistics."""
+    rc, stdout, stderr = _run_cmd(["uptime"])
+    uptime_sec = 0.0
+    if os.path.exists("/proc/uptime"):
+        try:
+            with open("/proc/uptime", "r") as f:
+                uptime_sec = float(f.read().split()[0])
+        except Exception:
+            pass
+
+    return {
+        "success": rc == 0 or uptime_sec > 0,
+        "raw": stdout.strip() if rc == 0 else "",
+        "uptime_seconds": uptime_sec,
+        "uptime_hours": round(uptime_sec / 3600.0, 2)
+    }
+
+
+def get_logged_in_users() -> Dict[str, Any]:
+    """Retrieve currently active terminal user sessions."""
+    from ops_assistant.tools.log_ops import who_is_logged_in
+    return who_is_logged_in()

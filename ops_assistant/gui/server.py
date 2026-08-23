@@ -855,6 +855,18 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                 emit("plan_step", {**step, "status": "done", "exit_code": 0, "output": "Completed (no shell command)"})
                 continue
 
+            # Safety enforcement gate: ensure no destructive command ever executes via plan runner
+            val = CommandSafetyValidator.validate(cmd)
+            if val.level == SafetyLevel.DESTRUCTIVE:
+                emit("plan_step", {
+                    **step,
+                    "status": "failed",
+                    "exit_code": 1,
+                    "output": f"Execution blocked: Command is DESTRUCTIVE ({val.matched_rule})",
+                    "error_diagnosis": "Command was blocked by the safety validator due to risk of destructive data loss."
+                })
+                break
+
             t_start = time.time()
             try:
                 proc = _sp.run(

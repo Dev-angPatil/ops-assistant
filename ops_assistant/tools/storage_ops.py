@@ -350,6 +350,63 @@ def clean_logs_and_temp(dry_run: bool = True) -> Dict[str, Any]:
     }
 
 
+def clean_trash(dry_run: bool = True) -> Dict[str, Any]:
+    """
+    Safely empty user desktop trash bin (~/.local/share/Trash).
+    """
+    trash_dir = Path.home() / ".local" / "share" / "Trash"
+    candidates = []
+    total_bytes = 0
+
+    if trash_dir.exists():
+        for sub in ("files", "info", "expunged"):
+            subdir = trash_dir / sub
+            if subdir.exists() and subdir.is_dir():
+                for item in subdir.iterdir():
+                    try:
+                        sz = item.stat().st_size if item.is_file() else 0
+                        total_bytes += sz
+                        candidates.append({
+                            "path": str(item),
+                            "name": item.name,
+                            "size_bytes": sz,
+                            "is_dir": item.is_dir(),
+                        })
+                    except OSError:
+                        pass
+
+    plan: Dict[str, Any] = {
+        "success": True,
+        "trash_path": str(trash_dir),
+        "items_count": len(candidates),
+        "freed_bytes": total_bytes,
+        "freed_human": _human_size(total_bytes),
+        "dry_run": dry_run,
+        "executed": False,
+        "errors": [],
+    }
+
+    if not dry_run:
+        deleted_count = 0
+        for item_info in candidates:
+            p = Path(item_info["path"])
+            try:
+                if p.is_dir() and not p.is_symlink():
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    p.unlink(missing_ok=True)
+                deleted_count += 1
+            except OSError as e:
+                plan["errors"].append(str(e))
+        plan["executed"] = True
+        plan["deleted_count"] = deleted_count
+        plan["message"] = f"Permanently emptied trash: deleted {deleted_count} items ({_human_size(total_bytes)} freed)."
+    else:
+        plan["message"] = f"Trash contains {len(candidates)} items (~{_human_size(total_bytes)} reclaimable). Run with dry_run=False to empty."
+
+    return plan
+
+
 organize_folder = organise_directory
 organise_folder = organise_directory
 organize_directory = organise_directory

@@ -204,3 +204,24 @@ def enable_service(service: str) -> Dict[str, Any]:
 
 def disable_service(service: str) -> Dict[str, Any]:
     return _systemctl("disable", service)
+
+
+def manage_service(action: str, service: str) -> Dict[str, Any]:
+    """Dispatch service operation by action name."""
+    action = action.lower().strip()
+    if action == "start":
+        return start_service(service)
+    elif action == "stop":
+        return stop_service(service)
+    elif action in ("restart", "reboot"):
+        return restart_service(service)
+    elif action == "reload":
+        return reload_service(service)
+    elif action == "enable":
+        return enable_service(service)
+    elif action == "disable":
+        return disable_service(service)
+    elif action in ("status", "show", "inspect"):
+        return show_service_status(service)
+    else:
+        return _systemctl(action, service)

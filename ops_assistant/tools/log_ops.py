@@ -27,12 +27,10 @@ def _has_journalctl() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Log tailing
-# ---------------------------------------------------------------------------
-
 def tail_log(
-    service_or_path: str,
+    service_or_path: Optional[str] = None,
     lines: int = 50,
+    service: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Tail logs for a systemd service name or a direct file path.
@@ -40,8 +38,9 @@ def tail_log(
     Returns:
         {"source": str, "lines": list[str], "error": str | None}
     """
+    target = service_or_path or service or "syslog"
     # If it looks like a file path, tail it directly
-    candidate = Path(os.path.expanduser(service_or_path))
+    candidate = Path(os.path.expanduser(target))
     if candidate.is_file():
         rc, stdout, stderr = _run(["tail", f"-n{lines}", str(candidate)])
         return {
@@ -54,7 +53,7 @@ def tail_log(
     # Otherwise treat as systemd unit name
     if _has_journalctl():
         # Strip .service suffix if provided for normalisation
-        unit = service_or_path.removesuffix(".service")
+        unit = target.removesuffix(".service")
         cmd = ["journalctl", "-u", unit, "-n", str(lines), "--no-pager", "-o", "short-iso"]
         rc, stdout, stderr = _run(cmd, timeout=15)
         if rc == 0 and stdout.strip():
@@ -237,3 +236,35 @@ def list_all_users() -> Dict[str, Any]:
     except OSError as e:
         return {"users": [], "error": str(e)}
     return {"users": users, "error": None}
+
+
+def query_logs(
+    unit: Optional[str] = None,
+    grep: Optional[str] = None,
+    lines: int = 50,
+    since: Optional[str] = None
+) -> Dict[str, Any]:
+    """Unified query dispatcher across journald, dmesg, and syslog."""
+    if unit == "kernel" or unit == "dmesg":
+        return show_kernel_errors(lines=lines)
+    elif unit:
+        return tail_log(service_or_path=unit, lines=lines)
+    elif grep:
+        if grep.lower() in ("error", "err", "fail", "critical", "crit"):
+            return show_errors(since=since or "1h")
+        else:
+            # General journalctl grep query
+            if _has_journalctl():
+                cmd = ["journalctl", "-g", grep, "-n", str(lines), "--no-pager", "-o", "short-iso"]
+                rc, stdout, stderr = _run(cmd, timeout=15)
+                if rc == 0:
+                    return {
+                        "source": "journald",
+                        "grep": grep,
+                        "count": len(stdout.splitlines()),
+                        "lines": stdout.splitlines(),
+                        "error": None
+                    }
+            return show_errors(since=since or "1h")
+    else:
+        return show_errors(since=since or "1h")

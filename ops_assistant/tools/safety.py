@@ -186,9 +186,22 @@ class CommandSafetyValidator:
     def extract_and_decode_base64(self, cmd_str: str) -> List[Tuple[str, str]]:
         """Extracts potential Base64 strings in pipeline/arguments and decodes them."""
         decoded_pairs = []
-        candidates = re.findall(r"[A-Za-z0-9+/]{4,}={0,2}", cmd_str)
+        # Exclude common command tokens to prevent false-positive deobfuscation spam
+        ignore_words = {
+            "sudo", "grep", "systemctl", "journalctl", "status", "restart", "start", "stop",
+            "test", "true", "false", "find", "curl", "wget", "echo", "chmod", "chown",
+            "kill", "head", "tail", "sort", "less", "more", "which", "uname", "free",
+            "uptime", "export", "source", "alias", "type", "ping", "host", "help", "bash",
+            "exec", "eval", "docker", "python", "perl", "ruby", "node", "awk", "sed"
+        }
+        candidates = re.findall(r"[A-Za-z0-9+/]{8,}={0,2}", cmd_str)
         for cand in candidates:
             if len(cand) % 4 != 0:
+                continue
+            if cand.lower() in ignore_words:
+                continue
+            # If all alphabetic and short, likely normal word
+            if cand.isalpha() and len(cand) < 16:
                 continue
             try:
                 raw = base64.b64decode(cand, validate=True)
@@ -432,8 +445,10 @@ class CommandSafetyValidator:
             return SafetyLevel.READ_ONLY, 0.0, "Empty command."
 
         # 1. Catastrophic Regex Check on Raw
+        unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", " ", raw)
         for pat in self.CATASTROPHIC_PATTERNS:
-            if re.search(pat, raw, flags=re.IGNORECASE):
+            target_str = unquoted if (pat.startswith(r">") or pat.startswith(r"(&>") or r">\s*" in pat) else raw
+            if re.search(pat, target_str, flags=re.IGNORECASE):
                 return (
                     SafetyLevel.DESTRUCTIVE,
                     1.0,
@@ -571,7 +586,9 @@ class CommandSafetyValidator:
                 subshells = self.extract_subshells(stage_str)
 
                 redirects = []
-                red_matches = re.findall(r"(>>?|>&|>\|)\s*([^\s;&|]+)", stage_str)
+                # Remove quoted strings before finding file redirections to avoid false positives like echo "> /etc/passwd"
+                unquoted_stage = re.sub(r"'[^']*'|\"[^\"]*\"", "", stage_str)
+                red_matches = re.findall(r"(>>?|>&|>\|)\s*([^\s;&|]+)", unquoted_stage)
                 for op, tgt in red_matches:
                     redirects.append((op, tgt))
 
@@ -639,8 +656,10 @@ class CommandSafetyValidator:
             return SafetyLevel.READ_ONLY, 0.0, "Empty command."
 
         # Stage 1: Quick Catastrophic Pattern Match on Raw Command
+        unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", " ", stripped)
         for pattern in self.CATASTROPHIC_PATTERNS:
-            if re.search(pattern, stripped, flags=re.IGNORECASE):
+            target_str = unquoted if (pattern.startswith(r">") or pattern.startswith(r"(&>") or r">\s*" in pattern) else stripped
+            if re.search(pattern, target_str, flags=re.IGNORECASE):
                 return (
                     SafetyLevel.DESTRUCTIVE,
                     1.0,

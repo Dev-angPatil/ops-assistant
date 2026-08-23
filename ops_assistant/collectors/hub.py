@@ -10,7 +10,8 @@ from ops_assistant.collectors.journal_collector import JournalCollector
 from ops_assistant.collectors.systemd_collector import SystemdCollector
 from ops_assistant.collectors.psi_collector import PSICollector
 from ops_assistant.collectors.distro_detector import DistroDetector, DistroInfo
-from typing import Optional
+import time
+from typing import Optional, Dict, Any, Tuple
 
 class TelemetryHub:
     def __init__(self, distro_detector: Optional[DistroDetector] = None):
@@ -19,8 +20,17 @@ class TelemetryHub:
         self.systemd = SystemdCollector()
         self.psi = PSICollector()
         self.distro = distro_detector or DistroDetector()
+        self._snapshot_cache: Dict[str, Tuple[float, SystemHealthSnapshot]] = {}
+        self._cache_ttl_sec = 0.25  # 250ms micro-cache for sub-50ms deterministic SLA
 
     def get_health_snapshot(self, distro_override: Optional[str] = None) -> SystemHealthSnapshot:
+        cache_key = str(distro_override or "auto")
+        now = time.time()
+        if cache_key in self._snapshot_cache:
+            ts, cached_snap = self._snapshot_cache[cache_key]
+            if now - ts < self._cache_ttl_sec:
+                return cached_snap
+
         mem = self.proc.get_memory_metrics()
         cpu = self.proc.get_cpu_metrics(sample_interval_ms=30)
         load = self.proc.get_load_metrics()
@@ -51,8 +61,7 @@ class TelemetryHub:
             pressure = f"FAILED_UNITS_DETECTED ({len(failed)})"
 
         d_info = self.distro.detect(override_family=distro_override)
-
-        return SystemHealthSnapshot(
+        snap = SystemHealthSnapshot(
             timestamp=datetime.now(timezone.utc).isoformat(),
             hostname=platform.node() or "localhost",
             kernel_release=platform.release() or "Linux",
@@ -66,3 +75,5 @@ class TelemetryHub:
             psi_metrics=asdict(psi_data) if psi_data.is_available else None,
             distro_info=d_info.to_dict()
         )
+        self._snapshot_cache[cache_key] = (now, snap)
+        return snap

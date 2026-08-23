@@ -167,3 +167,6 @@ def inspect_container_conflicts() -> Dict[str, Any]:
         "crashed_containers": crashed,
         "total_containers": res.get("count", 0)
     }
+
+
+prune_system = prune_docker_resources

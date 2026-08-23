@@ -28,6 +28,12 @@ class DistroKnowledgeBase:
         with self._lock:
             self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
+            if self.db_path != ":memory:":
+                try:
+                    self.conn.execute("PRAGMA journal_mode=WAL;")
+                    self.conn.execute("PRAGMA synchronous=NORMAL;")
+                except Exception:
+                    pass
             self._profiles_cache: Dict[str, Dict[str, Any]] = {}
             self._commands_cache: Dict[Tuple[str, str, str], str] = {}
             self._all_families_cache: Optional[List[str]] = None

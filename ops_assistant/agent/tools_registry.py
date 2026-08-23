@@ -101,17 +101,26 @@ class AgentToolsRegistry:
 
     def _inspect_service(self, service_name: str) -> Dict[str, Any]:
         """Inspect systemd or OpenRC unit status, exit code, and recent logs."""
-        clean_name = service_name.replace(".service", "").strip()
+        raw_name = service_name.strip()
+        has_custom_ext = any(raw_name.endswith(ext) for ext in (".socket", ".timer", ".slice", ".mount", ".target", ".path"))
+        if has_custom_ext:
+            clean_name = raw_name
+            unit_query = raw_name
+        else:
+            clean_name = raw_name.removesuffix(".service")
+            unit_query = f"{clean_name}.service"
+
         if self.distro_info.family_id == "alpine":
             cmd = f"rc-service {clean_name} status"
         else:
-            cmd = f"systemctl status {clean_name}.service --no-pager -l"
+            cmd = f"systemctl status {unit_query} --no-pager -l"
 
         try:
             proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
             output = proc.stdout if proc.stdout else proc.stderr
             return {
                 "service": clean_name,
+                "unit": unit_query,
                 "exit_code": proc.returncode,
                 "status_output": output[:2000],
                 "is_running": "active (running)" in output.lower() or "is started" in output.lower(),

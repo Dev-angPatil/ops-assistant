@@ -101,6 +101,8 @@ def download_file(
     url: str,
     destination_dir: str = '~/Downloads',
     filename: Optional[str] = None,
+    dest_path: Optional[str] = None,
+    dry_run: bool = False,
     auto_extract: bool = False,
     progress_callback: Optional[Callable[[int, int, float], None]] = None
 ) -> Dict[str, Any]:
@@ -111,8 +113,32 @@ def download_file(
     if not clean_url.startswith(('http://', 'https://')):
         clean_url = 'https://' + clean_url
 
-    dest_dir = _expand_path(destination_dir)
+    if dest_path:
+        p = _expand_path(dest_path)
+        if p.is_dir() or dest_path.endswith('/'):
+            dest_dir = p
+        else:
+            dest_dir = p.parent
+            if not filename:
+                filename = p.name
+    else:
+        dest_dir = _expand_path(destination_dir)
+
     dest_dir.mkdir(parents=True, exist_ok=True)
+
+    if dry_run:
+        target_name = filename or _sanitize_filename(os.path.basename(urllib.parse.urlparse(clean_url).path)) or "downloaded_file"
+        target_path = dest_dir / target_name
+        return {
+            'success': True,
+            'dry_run': True,
+            'url': clean_url,
+            'file_path': str(target_path),
+            'filename': target_name,
+            'destination_dir': str(dest_dir),
+            'message': f"Ready to download '{clean_url}' to {target_path}",
+            'action': 'download_file'
+        }
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) OpsAssistant/3.0'

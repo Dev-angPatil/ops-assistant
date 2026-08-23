@@ -184,6 +184,7 @@ def show_firewall_rules() -> Dict[str, Any]:
         rc, stdout, stderr = _run(["iptables", "-L", "-n", "--line-numbers"])
 
     return {
+        "success": rc == 0,
         "firewall": fw,
         "raw": stdout,
         "error": stderr if rc != 0 else None,
@@ -228,6 +229,27 @@ def deny_port(port: str, protocol: str = "tcp") -> Dict[str, Any]:
         "stdout": stdout,
         "stderr": stderr,
     }
+
+
+def manage_firewall(
+    action: str,
+    port: Optional[Any] = None,
+    protocol: str = "tcp"
+) -> Dict[str, Any]:
+    """Dispatch firewall operations (allow, deny, show/status)."""
+    action = action.lower().strip()
+    if action in ("allow", "open", "enable"):
+        if not port:
+            return {"success": False, "error": "Port required for firewall allow rule"}
+        return allow_port(str(port), protocol=protocol)
+    elif action in ("deny", "block", "close", "disable"):
+        if not port:
+            return {"success": False, "error": "Port required for firewall deny rule"}
+        return deny_port(str(port), protocol=protocol)
+    elif action in ("status", "show", "rules", "list"):
+        return show_firewall_rules()
+    else:
+        return {"success": False, "error": f"Unknown firewall action: {action}"}
 
 
 # Convenience aliases

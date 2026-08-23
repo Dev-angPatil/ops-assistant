@@ -88,12 +88,14 @@ class CausalityDAGEngine:
     RE_SVC = re.compile(r"failed to start|process exited|unit failed", re.IGNORECASE)
 
     def __init__(self):
-        pass
+        self._seq = 0
 
-    def _classify_log_event(self, log_msg: str, source: str, ts: float) -> Optional[CausalEventNode]:
+    def _classify_log_event(self, log_msg: str, source: str, ts: float, seq: int = 0) -> Optional[CausalEventNode]:
+        self._seq += 1
+        seq_id = seq or self._seq
         if self.RE_OOM.search(log_msg):
             return CausalEventNode(
-                id=f"oom_{int(ts*1000)%10000}",
+                id=f"oom_{seq_id}_{int(ts*1000)}",
                 timestamp=ts,
                 subsystem="KERNEL_MEM",
                 event_type="KERNEL_OOM",
@@ -102,7 +104,7 @@ class CausalityDAGEngine:
             )
         elif self.RE_BIND.search(log_msg):
             return CausalEventNode(
-                id=f"bind_{int(ts*1000)%10000}",
+                id=f"bind_{seq_id}_{int(ts*1000)}",
                 timestamp=ts,
                 subsystem="NETWORK_SOCKET",
                 event_type="BIND_FAILURE",
@@ -111,7 +113,7 @@ class CausalityDAGEngine:
             )
         elif self.RE_DISK.search(log_msg):
             return CausalEventNode(
-                id=f"disk_{int(ts*1000)%10000}",
+                id=f"disk_{seq_id}_{int(ts*1000)}",
                 timestamp=ts,
                 subsystem="VFS_STORAGE",
                 event_type="DISK_EXHAUSTION",
@@ -120,7 +122,7 @@ class CausalityDAGEngine:
             )
         elif self.RE_PERM.search(log_msg):
             return CausalEventNode(
-                id=f"perm_{int(ts*1000)%10000}",
+                id=f"perm_{seq_id}_{int(ts*1000)}",
                 timestamp=ts,
                 subsystem="POSIX_SECURITY",
                 event_type="PERMISSION_DENIED",
@@ -129,7 +131,7 @@ class CausalityDAGEngine:
             )
         elif self.RE_CONN.search(log_msg):
             return CausalEventNode(
-                id=f"conn_{int(ts*1000)%10000}",
+                id=f"conn_{seq_id}_{int(ts*1000)}",
                 timestamp=ts,
                 subsystem="HTTP_PROXY",
                 event_type="UPSTREAM_502",
@@ -138,7 +140,7 @@ class CausalityDAGEngine:
             )
         elif self.RE_SVC.search(log_msg):
             return CausalEventNode(
-                id=f"svc_{int(ts*1000)%10000}",
+                id=f"svc_{seq_id}_{int(ts*1000)}",
                 timestamp=ts,
                 subsystem="SYSTEMD",
                 event_type="SERVICE_START_FAIL",
@@ -156,7 +158,7 @@ class CausalityDAGEngine:
         # Ingest and classify events with incremental synthetic timestamps to preserve order
         for idx, log_entry in enumerate(raw_logs):
             ts = now - (len(raw_logs) - idx) * 0.5
-            node = self._classify_log_event(log_entry, "LOG", ts)
+            node = self._classify_log_event(log_entry, "LOG", ts, seq=idx + 1)
             if node and node.event_type not in [n.event_type for n in nodes]:
                 nodes.append(node)
                 node_map[node.id] = node
