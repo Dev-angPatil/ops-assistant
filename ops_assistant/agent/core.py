@@ -807,49 +807,58 @@ class ReActAgent:
         args = intent.args or {}
 
         compiled = NaturalLanguageCompiler.compile(resolved_query)
-        if compiled and compiled.get("command"):
-            if intent.type in (IntentType.UNKNOWN, IntentType.GENERIC_COMMAND, IntentType.SHELL_RUN, IntentType.DIAGNOSE) or "mkdir" in compiled.get("command", ""):
-                cmd = compiled["command"]
-                summary = compiled.get("summary", f"Run `{cmd}`")
-                safety_lvl = compiled.get("safety_level", SafetyLevel.MODIFYING.value)
-                risk_sc = float(compiled.get("risk_score", 0.35))
-                rollback_cmd = compiled.get("rollback_command")
-                explanation_p = generate_natural_explanation(resolved_query, cmd, 0, "", "")
+        if compiled and compiled.get("command") and (
+            intent.type in (
+                IntentType.UNKNOWN, IntentType.GENERIC_COMMAND, IntentType.SHELL_RUN, IntentType.DIAGNOSE,
+                IntentType.FILE_FIND, IntentType.FILE_SHOW, IntentType.FILE_CREATE, IntentType.FILE_TRASH,
+                IntentType.FILE_COPY, IntentType.FILE_MOVE, IntentType.DESKTOP_OPEN_FOLDER,
+                IntentType.DESKTOP_OPEN_FILE, IntentType.DESKTOP_OPEN_BROWSER
+            ) or any(k in compiled.get("command", "") for k in (
+                "playerctl", "brightnessctl", "hyprctl", "notify-send", "tar", "gio trash",
+                "mkdir", "killall -SIGUSR2", "wpctl", "pactl", "upower"
+            ))
+        ):
+            cmd = compiled["command"]
+            summary = compiled.get("summary", f"Run `{cmd}`")
+            safety_lvl = compiled.get("safety_level", SafetyLevel.MODIFYING.value)
+            risk_sc = float(compiled.get("risk_score", 0.35))
+            rollback_cmd = compiled.get("rollback_command")
+            explanation_p = generate_natural_explanation(resolved_query, cmd, 0, "", "")
 
-                res_action: Dict[str, Any] = {
-                    "query": query,
-                    "intent": compiled.get("intent", "desktop_command"),
-                    "confidence": 0.95,
-                    "steps": [summary],
-                    "summary": summary,
+            res_action: Dict[str, Any] = {
+                "query": query,
+                "intent": compiled.get("intent", "desktop_command"),
+                "confidence": 0.95,
+                "steps": [summary],
+                "summary": summary,
+                "command": cmd,
+                "command_description": summary,
+                "explanation_paragraph": explanation_p,
+                "planned_commands": [{
                     "command": cmd,
-                    "command_description": summary,
-                    "explanation_paragraph": explanation_p,
-                    "planned_commands": [{
-                        "command": cmd,
-                        "description": summary,
-                        "safety_level": safety_lvl,
-                        "risk_score": risk_sc
-                    }],
+                    "description": summary,
                     "safety_level": safety_lvl,
-                    "risk_score": risk_sc,
-                    "output": None,
-                    "rollback_command": rollback_cmd,
-                    "diagnostic_report": None,
-                    "requires_permission": safety_lvl in ("HIGH_RISK", "DESTRUCTIVE") or compiled.get("requires_permission", False),
-                    "executed": execute,
-                    "timestamp": time.time()
-                }
+                    "risk_score": risk_sc
+                }],
+                "safety_level": safety_lvl,
+                "risk_score": risk_sc,
+                "output": None,
+                "rollback_command": rollback_cmd,
+                "diagnostic_report": None,
+                "requires_permission": safety_lvl in ("HIGH_RISK", "DESTRUCTIVE") or compiled.get("requires_permission", False),
+                "executed": execute,
+                "timestamp": time.time()
+            }
 
-                if execute:
-                    executor = SafeExecutor()
-                    exec_res = executor.execute(cmd, rollback_cmd=rollback_cmd)
-                    res_action["output"] = exec_res
-                    res_action["summary"] = f"Executed: `{cmd}`" if exec_res.get("returncode") == 0 else f"Failed: `{cmd}`"
-                else:
-                    res_action["summary"] = f"Ready to run: `{cmd}` — {summary}"
+            if execute:
+                executor = SafeExecutor()
+                exec_res = executor.execute(cmd, rollback_cmd=rollback_cmd)
+                res_action["output"] = exec_res
+                res_action["summary"] = f"Executed: `{cmd}`" if exec_res.get("returncode") == 0 else f"Failed: `{cmd}`"
+            else:
+                res_action["summary"] = f"Ready to run: `{cmd}` — {summary}"
 
-                return res_action
+            return res_action
 
         # Standard Intent Handling
         result: Dict[str, Any] = {

@@ -899,8 +899,8 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     ]),
 
     (IntentType.PACKAGE_REMOVE, [
-        (r"\b(?:remove|uninstall|purge|delete)\s+(?:the\s+)?(?:software\s+|package\s+|app\s+|application\s+|tool\s+)?(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
-        (r"\b(?:uninstall|purge|remove)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
+        (r"\b(?:uninstall|purge)\s+(?:the\s+)?(?:software\s+|package\s+|app\s+|application\s+|tool\s+)?(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
+        (r"\b(?:remove|delete)\s+(?:the\s+)?(?:package|software|program|tool)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
         (r"\b(?:sudo\s+)?(?:apt|apt-get|yum|dnf|pacman|apk|zypper)\s+(?:remove|purge|uninstall|-R|-Rns|del)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
     ]),
 

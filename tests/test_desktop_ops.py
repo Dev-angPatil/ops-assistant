@@ -94,6 +94,66 @@ class TestDesktopOps(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertIn("wallpaper", res)
 
+    def test_extended_desktop_media_and_ipc_commands(self):
+        from ops_assistant.nlp.nl_compiler import NaturalLanguageCompiler
+
+        # Media controls
+        c_pause = NaturalLanguageCompiler.compile("pause music")
+        self.assertIsNotNone(c_pause)
+        self.assertIn("playerctl pause", c_pause["command"])
+
+        c_play = NaturalLanguageCompiler.compile("resume music")
+        self.assertIsNotNone(c_play)
+        self.assertIn("playerctl play", c_play["command"])
+
+        c_next = NaturalLanguageCompiler.compile("next song")
+        self.assertIsNotNone(c_next)
+        self.assertIn("playerctl next", c_next["command"])
+
+        c_now = NaturalLanguageCompiler.compile("what song is playing")
+        self.assertIsNotNone(c_now)
+        self.assertIn("playerctl metadata", c_now["command"])
+
+        # Brightness
+        c_br = NaturalLanguageCompiler.compile("set brightness to 80%")
+        self.assertIsNotNone(c_br)
+        self.assertIn("brightnessctl set 80%", c_br["command"])
+
+        c_br_up = NaturalLanguageCompiler.compile("increase brightness")
+        self.assertIsNotNone(c_br_up)
+        self.assertIn("brightnessctl set +10%", c_br_up["command"])
+
+        # Window management
+        c_close_win = NaturalLanguageCompiler.compile("close active window")
+        self.assertIsNotNone(c_close_win)
+        self.assertIn("killactive", c_close_win["command"])
+
+        c_float = NaturalLanguageCompiler.compile("toggle floating")
+        self.assertIsNotNone(c_float)
+        self.assertIn("togglefloating", c_float["command"])
+
+        c_ws = NaturalLanguageCompiler.compile("switch to workspace 2")
+        self.assertIsNotNone(c_ws)
+        self.assertIn("workspace 2", c_ws["command"])
+
+        # File actions & archiving
+        c_del = NaturalLanguageCompiler.compile("delete demo_folder")
+        self.assertIsNotNone(c_del)
+        self.assertIn("gio trash 'demo_folder'", c_del["command"])
+
+        c_zip = NaturalLanguageCompiler.compile("zip folder my_project")
+        self.assertIsNotNone(c_zip)
+        self.assertIn("tar -czvf 'my_project.tar.gz'", c_zip["command"])
+
+        # Notifications & Battery
+        c_notif = NaturalLanguageCompiler.compile("send notification Backup complete")
+        self.assertIsNotNone(c_notif)
+        self.assertIn("notify-send", c_notif["command"])
+
+        c_bat = NaturalLanguageCompiler.compile("check battery status")
+        self.assertIsNotNone(c_bat)
+        self.assertIn("upower", c_bat["command"])
+
 
 if __name__ == "__main__":
     unittest.main()

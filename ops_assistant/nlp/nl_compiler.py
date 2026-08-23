@@ -211,7 +211,7 @@ class NaturalLanguageCompiler:
 
             # Check popular sites dictionary
             for site_key, site_url in cls.POPULAR_SITES.items():
-                if site_key in target or target.startswith(site_key):
+                if re.search(rf"\b{re.escape(site_key)}\b", target, re.IGNORECASE):
                     return {
                         "command": f"xdg-open '{site_url}'",
                         "url": site_url,
@@ -435,6 +435,284 @@ class NaturalLanguageCompiler:
                 "risk_score": 0.05,
                 "explanation": f"I will open your '{app}' configuration file.",
                 "explanation_paragraph": f"The assistant locates your '{app}' configuration and opens it using your desktop handler or preferred editor."
+            }
+
+        # 3.9 Media Playback & In-App Music Controls (playerctl / Spotify / YouTube / MPV)
+        if re.search(r"\b(?:pause|stop)\s+(?:the\s+)?(?:music|song|track|playback|media|spotify)\b|\bpause\s+player\b", clean, re.IGNORECASE):
+            return {
+                "command": "playerctl pause 2>/dev/null || true",
+                "description": "Pauses active media playback across Spotify, browser YouTube, and media players via MPRIS IPC.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will pause media playback.",
+                "explanation_paragraph": "Executes `playerctl pause` over the MPRIS D-Bus interface to pause active audio or video."
+            }
+
+        if re.search(r"\b(?:resume|play|start)\s+(?:the\s+)?(?:music|song|track|playback|media|spotify)\b|\bunpause\b", clean, re.IGNORECASE):
+            return {
+                "command": "playerctl play 2>/dev/null || true",
+                "description": "Resumes active media playback via MPRIS IPC.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will resume media playback.",
+                "explanation_paragraph": "Executes `playerctl play` over the MPRIS D-Bus interface to resume playback."
+            }
+
+        if re.search(r"\b(?:next|skip)\s+(?:the\s+)?(?:song|track|music)\b", clean, re.IGNORECASE):
+            return {
+                "command": "playerctl next 2>/dev/null || true",
+                "description": "Skips to next track in active media player via MPRIS IPC.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will skip to the next track.",
+                "explanation_paragraph": "Executes `playerctl next` to advance track in Spotify, browser, or media player."
+            }
+
+        if re.search(r"\b(?:previous|prev)\s+(?:the\s+)?(?:song|track|music)\b", clean, re.IGNORECASE):
+            return {
+                "command": "playerctl previous 2>/dev/null || true",
+                "description": "Returns to previous track in active media player via MPRIS IPC.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will return to the previous track.",
+                "explanation_paragraph": "Executes `playerctl previous` to return to previous track."
+            }
+
+        if re.search(r"\b(?:what\s+(?:song\s+is\s+|is\s+)?playing|what\s+song\s+is\s+this|now\s+playing|current\s+song)\b", clean, re.IGNORECASE):
+            return {
+                "command": "playerctl metadata --format 'Now Playing: {{ artist }} - {{ title }} ({{ album }})' 2>/dev/null || echo 'No media currently playing'",
+                "description": "Queries current track metadata (artist, title, album) via MPRIS.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will inspect currently playing media track metadata.",
+                "explanation_paragraph": "Queries `playerctl metadata` to extract live artist and track titles."
+            }
+
+        # 3.10 Display Brightness Controls
+        m_bright_set = re.search(r"\b(?:set\s+)?brightness\s+(?:to\s+)?(?P<pct>\d{1,3})\s*%?", clean, re.IGNORECASE)
+        if m_bright_set:
+            pct = m_bright_set.group("pct")
+            return {
+                "command": f"brightnessctl set {pct}% 2>/dev/null || light -S {pct} 2>/dev/null || echo 'Brightness control tool not found'",
+                "description": f"Sets screen backlight brightness to {pct}%.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will set screen brightness to {pct}%.",
+                "explanation_paragraph": f"Executes `brightnessctl set {pct}%` to update display backlight levels."
+            }
+
+        if re.search(r"\b(?:increase|turn\s+up|raise)\s+(?:the\s+)?brightness\b|\bbrightness\s+up\b", clean, re.IGNORECASE):
+            return {
+                "command": "brightnessctl set +10% 2>/dev/null || light -A 10 2>/dev/null || echo 'Brightness control tool not found'",
+                "description": "Increases screen backlight brightness by 10%.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will increase screen brightness.",
+                "explanation_paragraph": "Executes `brightnessctl set +10%` to brighten display backlight."
+            }
+
+        if re.search(r"\b(?:decrease|turn\s+down|lower)\s+(?:the\s+)?brightness\b|\bbrightness\s+down\b", clean, re.IGNORECASE):
+            return {
+                "command": "brightnessctl set 10%- 2>/dev/null || light -U 10 2>/dev/null || echo 'Brightness control tool not found'",
+                "description": "Decreases screen backlight brightness by 10%.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will decrease screen brightness.",
+                "explanation_paragraph": "Executes `brightnessctl set 10%-` to dim display backlight."
+            }
+
+        # 3.11 Window Management & In-App IPC
+        if re.search(r"\b(?:close|kill)\s+(?:the\s+)?(?:active|current|focused)\s+window\b", clean, re.IGNORECASE):
+            return {
+                "command": "hyprctl dispatch killactive 2>/dev/null || xdotool getactivewindow windowclose 2>/dev/null || wmctrl -c :ACTIVE: 2>/dev/null",
+                "description": "Closes the currently active/focused desktop window via compositor IPC.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will close the currently focused window.",
+                "explanation_paragraph": "Dispatches `hyprctl dispatch killactive` or X11 equivalent to close the active window."
+            }
+
+        if re.search(r"\b(?:toggle\s+floating|float\s+window|unfloat\s+window)\b", clean, re.IGNORECASE):
+            return {
+                "command": "hyprctl dispatch togglefloating 2>/dev/null",
+                "description": "Toggles floating mode for currently focused window.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will toggle floating mode for the active window.",
+                "explanation_paragraph": "Dispatches `hyprctl dispatch togglefloating` to compositor."
+            }
+
+        if re.search(r"\b(?:toggle\s+fullscreen|fullscreen\s+window)\b", clean, re.IGNORECASE):
+            return {
+                "command": "hyprctl dispatch fullscreen 1 2>/dev/null",
+                "description": "Toggles fullscreen mode for currently focused window.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will toggle fullscreen mode for the active window.",
+                "explanation_paragraph": "Dispatches `hyprctl dispatch fullscreen 1` to compositor."
+            }
+
+        m_ws = re.search(r"\b(?:switch\s+to\s+|go\s+to\s+)?workspace\s+(?P<ws>\d+)\b", clean, re.IGNORECASE)
+        if m_ws:
+            ws_id = m_ws.group("ws")
+            return {
+                "command": f"hyprctl dispatch workspace {ws_id} 2>/dev/null || i3-msg workspace {ws_id} 2>/dev/null || swaymsg workspace {ws_id} 2>/dev/null",
+                "description": f"Switches the focused desktop workspace to workspace {ws_id}.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will switch to desktop workspace {ws_id}.",
+                "explanation_paragraph": f"Executes `hyprctl dispatch workspace {ws_id}` to switch workspace."
+            }
+
+        m_kill_app = re.search(r"\b(?:close|quit|kill)\s+(?:app\s+|application\s+)?(?P<app>firefox|chrome|chromium|spotify|discord|telegram|vlc|mpv|code|obsidian|gimp|steam|dolphin|nautilus|thunar)\b", clean, re.IGNORECASE)
+        if m_kill_app:
+            target_app = m_kill_app.group("app").lower()
+            return {
+                "command": f"pkill -x '{target_app}' 2>/dev/null || killall '{target_app}' 2>/dev/null",
+                "description": f"Closes all running instances of application '{target_app}'.",
+                "intent": "process_kill",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.20,
+                "explanation": f"I will terminate application '{target_app}'.",
+                "explanation_paragraph": f"Executes `pkill -x '{target_app}'` to gracefully signal all active application processes."
+            }
+
+        # 3.12 File & Directory Actions (Viewing Images, Archiving, Deleting)
+        m_img = re.search(r"\b(?:open|view|show)\s+(?:the\s+)?(?:image|picture|photo)\s+(?P<path>[\w\.\-\/~]+)\b", clean, re.IGNORECASE)
+        if m_img:
+            img_path = m_img.group("path")
+            return {
+                "command": f"xdg-open '{img_path}' 2>/dev/null || imv '{img_path}' 2>/dev/null || eog '{img_path}' 2>/dev/null || feh '{img_path}'",
+                "description": f"Opens image file '{img_path}' in system image viewer.",
+                "intent": "file_show",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will open image '{img_path}'.",
+                "explanation_paragraph": f"Dispatches `xdg-open` or image viewer to display '{img_path}'."
+            }
+
+        m_mkdir = re.search(r"\b(?:make|create)\s+(?:a\s+)?(?:folder|directory)\s+(?:called\s+|named\s+)?(?P<dir>[\w\.\-\/~]+)\b", clean, re.IGNORECASE)
+        if m_mkdir:
+            dir_name = m_mkdir.group("dir")
+            return {
+                "command": f"mkdir -p '{dir_name}'",
+                "description": f"Creates directory '{dir_name}' along with any missing parent folders.",
+                "intent": "file_create",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.15,
+                "rollback_command": f"rmdir '{dir_name}' 2>/dev/null || rm -rf '{dir_name}'",
+                "explanation": f"I will create directory '{dir_name}'.",
+                "explanation_paragraph": f"Executes `mkdir -p '{dir_name}'` to create the target folder structure."
+            }
+
+        m_del = re.search(r"\b(?:delete|trash|remove)\s+(?:the\s+)?(?:file\s+|folder\s+|directory\s+)?(?P<target>[\w\.\-\/~]+)\b", clean, re.IGNORECASE)
+        if m_del and not any(kw in clean.lower() for kw in ("package", "app", "application", "service", "daemon", "logs", "cache")):
+            tgt = m_del.group("target")
+            return {
+                "command": f"gio trash '{tgt}' 2>/dev/null || rm -rf '{tgt}'",
+                "description": f"Safely moves '{tgt}' to desktop trash bin.",
+                "intent": "file_trash",
+                "safety_level": "HIGH_RISK",
+                "risk_score": 0.60,
+                "explanation": f"I will move '{tgt}' to trash.",
+                "explanation_paragraph": f"Uses `gio trash` (or POSIX deletion fallback) to remove '{tgt}' safely."
+            }
+
+        m_zip = re.search(r"\b(?:zip|compress)\s+(?:folder\s+|directory\s+)?(?P<target>[\w\.\-\/~]+)\b", clean, re.IGNORECASE)
+        if m_zip:
+            tgt = m_zip.group("target").rstrip("/")
+            return {
+                "command": f"tar -czvf '{tgt}.tar.gz' '{tgt}'",
+                "description": f"Compresses '{tgt}' into gzip tarball archive '{tgt}.tar.gz'.",
+                "intent": "generic_command",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.20,
+                "rollback_command": f"rm -f '{tgt}.tar.gz'",
+                "explanation": f"I will compress '{tgt}' into '{tgt}.tar.gz'.",
+                "explanation_paragraph": f"Executes `tar -czvf '{tgt}.tar.gz' '{tgt}'` to create compressed archive."
+            }
+
+        m_unzip = re.search(r"\b(?:unzip|extract|decompress)\s+(?P<target>[\w\.\-\/~]+)\b", clean, re.IGNORECASE)
+        if m_unzip:
+            tgt = m_unzip.group("target")
+            return {
+                "command": f"tar -xvf '{tgt}' 2>/dev/null || unzip '{tgt}'",
+                "description": f"Extracts compressed archive '{tgt}' into current working directory.",
+                "intent": "generic_command",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.25,
+                "explanation": f"I will extract archive '{tgt}'.",
+                "explanation_paragraph": f"Dispatches `tar -xvf` or `unzip` to unpack contents of '{tgt}'."
+            }
+
+        # 3.13 Notifications, Battery & Session Power Controls
+        m_notif = re.search(r"\b(?:send\s+)?notification\s+(?:saying\s+|that\s+)?(?P<msg>.+)\b|\bnotify\s+(?:me\s+)?(?:that\s+|saying\s+)?(?P<msg2>.+)\b", clean, re.IGNORECASE)
+        if m_notif:
+            msg = (m_notif.group("msg") or m_notif.group("msg2") or "Task completed!").strip("\"'")
+            return {
+                "command": f"notify-send 'LinuxOps Assistant' '{msg}'",
+                "description": f"Dispatches desktop notification popup with message '{msg}'.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will send a desktop notification: '{msg}'.",
+                "explanation_paragraph": f"Executes `notify-send` over the desktop notification daemon."
+            }
+
+        if re.search(r"\b(?:check|show|get)\s+(?:my\s+)?(?:battery|power|charge)(?:\s+(?:status|level|percentage))?\b", clean, re.IGNORECASE):
+            return {
+                "command": "upower -i $(upower -e 2>/dev/null | grep 'BAT' | head -n 1) 2>/dev/null || acpi -b 2>/dev/null || cat /sys/class/power_supply/BAT*/capacity 2>/dev/null || echo 'AC Power / No battery detected'",
+                "description": "Reports live battery percentage, health, and power charging state.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will check battery charge level and health.",
+                "explanation_paragraph": "Queries `upower` or ACPI to read battery capacity and charge state."
+            }
+
+        if re.search(r"\b(?:lock\s+(?:screen|laptop|computer|session))\b", clean, re.IGNORECASE):
+            return {
+                "command": "hyprlock 2>/dev/null || swaylock 2>/dev/null || loginctl lock-session 2>/dev/null || true",
+                "description": "Locks the current desktop graphical session.",
+                "intent": "generic_command",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will lock your screen session.",
+                "explanation_paragraph": "Executes screen locker (`hyprlock` / `swaylock` / `loginctl lock-session`)."
+            }
+
+        if re.search(r"\b(?:reboot|restart\s+(?:the\s+)?(?:laptop|computer|system|machine|pc))\b", clean, re.IGNORECASE):
+            return {
+                "command": "systemctl reboot",
+                "description": "Initiates graceful reboot of the host operating system.",
+                "intent": "system_reboot",
+                "safety_level": "HIGH_RISK",
+                "risk_score": 0.75,
+                "explanation": "I will initiate a system reboot.",
+                "explanation_paragraph": "Executes `systemctl reboot` after operator approval."
+            }
+
+        if re.search(r"\b(?:suspend|sleep)\s+(?:the\s+)?(?:laptop|computer|system|pc)\b", clean, re.IGNORECASE):
+            return {
+                "command": "systemctl suspend",
+                "description": "Suspends the operating system to RAM.",
+                "intent": "generic_command",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.30,
+                "explanation": "I will put the system into suspend sleep mode.",
+                "explanation_paragraph": "Executes `systemctl suspend` to sleep."
             }
 
         # 4. System Resource & Health Inquiries

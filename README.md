@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-225%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-227%20passed-brightgreen.svg)]()
 [![Latency](https://img.shields.io/badge/latency-%3C50ms-success.svg)]()
 [![Accuracy](https://img.shields.io/badge/accuracy-100%25-brightgreen.svg)]()
 [![Distro Support](https://img.shields.io/badge/distros-Debian%20%7C%20RHEL%20%7C%20Arch%20%7C%20Alpine%20%7C%20SUSE%20%7C%20BOSS-purple.svg)]()
@@ -13,7 +13,9 @@
 
 ## 📌 Overview
 
-The **AI-Powered Linux Operations Assistant** (`ops-assistant`) is an autonomous, explainable, and air-gapped system administration copilot built directly for Linux environments. It ingests natural language sysadmin queries, correlates multi-vector system telemetry (`procfs`, `sysfs`, `journald`, `dmesg`, `/var/log/*`, `/proc/pressure/*` PSI metrics, `systemd` / `OpenRC`), introspects desktop environments (**Hyprland/HyDE, KDE Plasma, GNOME, Wayland, PipeWire**), indexes active user configuration files, isolates root causes across 16+ failure taxonomy classes in **<50ms**, and delivers step-by-step Explainable AI (XAI) rationale, flag-by-flag command breakdowns, 4-tier risk scoring, and automatic state-reverting rollback generation.
+The **AI-Powered Linux Operations Assistant** (`ops-assistant`) is an autonomous, explainable, and air-gapped system administration copilot built directly for Linux environments. It ingests natural language sysadmin queries, correlates multi-vector system telemetry (`procfs`, `sysfs`, `journald`, `dmesg`, `/var/log/*`, `/proc/pressure/*` PSI metrics, `systemd` / `OpenRC`), introspects desktop environments (**Hyprland/HyDE, KDE Plasma, GNOME, Wayland, PipeWire**), indexes active user configuration files, executes in-app media & IPC controls, isolates root causes across 16+ failure taxonomy classes in **<50ms**, and delivers step-by-step Explainable AI (XAI) rationale, flag-by-flag command breakdowns, 4-tier risk scoring, and automatic state-reverting rollback generation.
+
+> 📖 **See [MODEL_CAPABILITIES.md](MODEL_CAPABILITIES.md) for a detailed breakdown of capabilities across Deterministic Fast-Path, 2.5B Edge Models, 7B Models, and Cloud LLMs.**
 
 ---
 
