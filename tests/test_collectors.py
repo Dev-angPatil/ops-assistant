@@ -93,6 +93,16 @@ class TestCollectors(unittest.TestCase):
         self.assertGreater(snap.uptime_seconds, 0)
         self.assertIsNotNone(snap.pressure_status)
 
+    def test_user_config_indexer(self):
+        from ops_assistant.collectors.config_indexer import UserConfigIndexer
+        configs = UserConfigIndexer.scan_active_configs()
+        self.assertIsInstance(configs, list)
+        for cfg in configs:
+            self.assertIn("config_key", cfg)
+            self.assertIn("raw_path", cfg)
+            self.assertIn("absolute_path", cfg)
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -113,11 +113,16 @@ graph TD
   - `DESTRUCTIVE` (Risk 1.00)
 - Blocks catastrophic patterns (`rm -rf /`, fork bombs, `/etc/passwd` overwrites, raw block device writes).
 
-### 8. **Embedded SQLite Distro Knowledge Base (`ops_assistant.db.*`, `ops_assistant.collectors.distro_detector`)**
+### 8. **Embedded SQLite Distro & Desktop Knowledge Base (`ops_assistant.db.*`, `ops_assistant.collectors.*`)**
 - **Relational Tables**:
   - `distro_profiles`: System metadata across Debian/Ubuntu, RHEL/CentOS/Fedora, Arch Linux, Alpine Linux, and openSUSE/SLES.
   - `distro_commands`: Parameterized command templates across services, packages, firewalls, security, networking, bootloader, storage, kernel, and user management.
   - `distro_locks`: Advisory lock files and process collision signatures across all major distributions.
+  - `desktop_ecosystems`: Grounded operational syntax and wiki references for Hyprland, HyDE, Wayland Core, and PipeWire/WirePlumber audio.
+  - `user_configs`: Real-time index of discovered user and system configuration files (`~/.config/*`, `/etc/*`) for instant context-aware retrieval.
+- **Dynamic Introspection & Config Scanner**:
+  - `HostIntrospector`: Ground-truth introspection of running compositors (Hyprland, KDE, GNOME), theme frameworks (HyDE), and wallpaper/audio engines.
+  - `UserConfigIndexer`: Discovers and catalogs active desktop configurations into SQLite.
   - `distro_error_signatures`: Rich regex error patterns, plain-English explanations, and deterministic remediation workflows per distribution.
   - `distro_quirks`: Behavioral gotchas, anti-patterns, and best practices per distro (e.g. PEP 668 on Debian, SELinux `mv` vs `cp` on RHEL, partial upgrade avoidance on Arch, musl glibc shim on Alpine, Snapper snapshots on SUSE).
   - `distro_filesystem`: Filesystem mapping of configuration directories, repository configs, and security profile directories.

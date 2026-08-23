@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-210%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-225%20passed-brightgreen.svg)]()
 [![Latency](https://img.shields.io/badge/latency-%3C50ms-success.svg)]()
 [![Accuracy](https://img.shields.io/badge/accuracy-100%25-brightgreen.svg)]()
 [![Distro Support](https://img.shields.io/badge/distros-Debian%20%7C%20RHEL%20%7C%20Arch%20%7C%20Alpine%20%7C%20SUSE%20%7C%20BOSS-purple.svg)]()
@@ -13,7 +13,7 @@
 
 ## 📌 Overview
 
-The **AI-Powered Linux Operations Assistant** (`ops-assistant`) is an autonomous, explainable, and air-gapped system administration copilot built directly for Linux environments. It ingests natural language sysadmin queries, correlates multi-vector system telemetry (`procfs`, `sysfs`, `journald`, `dmesg`, `/var/log/*`, `/proc/pressure/*` PSI metrics, `systemd` / `OpenRC`), isolates root causes across 16+ failure taxonomy classes in **<50ms**, and delivers step-by-step Explainable AI (XAI) rationale, flag-by-flag command breakdowns, 4-tier risk scoring, ephemeral namespace sandbox validation, and automatic state-reverting rollback generation.
+The **AI-Powered Linux Operations Assistant** (`ops-assistant`) is an autonomous, explainable, and air-gapped system administration copilot built directly for Linux environments. It ingests natural language sysadmin queries, correlates multi-vector system telemetry (`procfs`, `sysfs`, `journald`, `dmesg`, `/var/log/*`, `/proc/pressure/*` PSI metrics, `systemd` / `OpenRC`), introspects desktop environments (**Hyprland/HyDE, KDE Plasma, GNOME, Wayland, PipeWire**), indexes active user configuration files, isolates root causes across 16+ failure taxonomy classes in **<50ms**, and delivers step-by-step Explainable AI (XAI) rationale, flag-by-flag command breakdowns, 4-tier risk scoring, and automatic state-reverting rollback generation.
 
 ---
 
@@ -24,11 +24,12 @@ The **AI-Powered Linux Operations Assistant** (`ops-assistant`) is an autonomous
    - **Layer 2 (Google Gemini API)**: High-speed cloud copilot (`gemini-2.0-flash`, `gemini-1.5-pro`) with structured JSON outputs.
    - **Layer 3 (Local GGUF / Ollama)**: Fully offline edge inference via `llama-cpp-python` with hardware-aware auto-tuning.
 
-2. **Dynamic Causality DAG Engine (`ops_assistant.explainer.causality_dag`)**:
-   - Constructs directed causal graphs $G = (V, E)$ to isolate true root causes with topological in-degree minimization ($\text{InDegree}=0$), suppressing symptom cascade noise (e.g. `KERNEL_OOM` $\rightarrow$ `PROCESS_KILLED` $\rightarrow$ `SOCKET_CLOSED` $\rightarrow$ `UPSTREAM_502`).
+2. **Desktop & System Intelligence Ecosystem (`ops_assistant.collectors`, `ops_assistant.db`)**:
+   - **Desktop Introspector**: Live detection of compositors (Hyprland, Sway, KDE Plasma, GNOME), theme frameworks (HyDE, Omakub), wallpaper engines (hyprpaper, matugen, swww), and audio daemons (PipeWire, WirePlumber).
+   - **User Configuration Indexer**: Scans and catalogs user configs (`hyprland.lua`, `waybar/config.jsonc`, `kitty.conf`, `.zshrc`, `/etc/fstab`) for instant context-aware file retrieval.
 
-3. **Ephemeral Rootless Namespace Sandbox Probe (`ops_assistant.tools.sandbox_probe`)**:
-   - Empirically dry-runs candidate remediation commands inside isolated User + Mount + PID namespaces (`unshare -r -m -p -f --mount-proc`) with fallback to POSIX syntax validation prior to presenting them to the operator.
+3. **Dynamic Causality DAG Engine (`ops_assistant.explainer.causality_dag`)**:
+   - Constructs directed causal graphs $G = (V, E)$ to isolate true root causes with topological in-degree minimization ($\text{InDegree}=0$), suppressing symptom cascade noise (e.g. `KERNEL_OOM` $\rightarrow$ `PROCESS_KILLED` $\rightarrow$ `SOCKET_CLOSED` $\rightarrow$ `UPSTREAM_502`).
 
 4. **AST Safety Guardrails & 4-Tier Risk Matrix (`ops_assistant.tools.safety`)**:
    - Classifies commands into `READ_ONLY` (0.05), `MODIFYING` (0.35), `HIGH_RISK` (0.70), and `DESTRUCTIVE` (1.00).
