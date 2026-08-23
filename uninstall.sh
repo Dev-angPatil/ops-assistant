@@ -136,7 +136,11 @@ if [ -f "$ZSH_COMP" ]; then
 fi
 
 if [ -f "/etc/bash_completion.d/ops-assistant" ]; then
-    $SUDO rm -f "/etc/bash_completion.d/ops-assistant" 2>/dev/null || true
+    if [ -w "/etc/bash_completion.d" ]; then
+        rm -f "/etc/bash_completion.d/ops-assistant" 2>/dev/null || true
+    elif [ -n "$SUDO" ] && sudo -n true 2>/dev/null; then
+        $SUDO rm -f "/etc/bash_completion.d/ops-assistant" 2>/dev/null || true
+    fi
 fi
 
 # 4. Remove Global Symlink
@@ -144,7 +148,7 @@ if [ -L "/usr/local/bin/ops-assistant" ]; then
     if [ -w "/usr/local/bin" ]; then
         rm -f "/usr/local/bin/ops-assistant"
         log_success "Removed global symlink: /usr/local/bin/ops-assistant"
-    elif [ -n "$SUDO" ]; then
+    elif [ -n "$SUDO" ] && sudo -n true 2>/dev/null; then
         $SUDO rm -f "/usr/local/bin/ops-assistant" 2>/dev/null || true
         log_success "Removed global symlink: /usr/local/bin/ops-assistant (via sudo)"
     fi

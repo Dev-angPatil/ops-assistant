@@ -430,6 +430,9 @@ else
     else
         log_info "Cloning repository into $INSTALL_DIR..."
         mkdir -p "$(dirname "$INSTALL_DIR")"
+        if [ -d "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR/.git" ]; then
+            rm -rf "$INSTALL_DIR"
+        fi
         git clone "$REPO_URL" "$INSTALL_DIR"
     fi
 fi
@@ -455,7 +458,7 @@ if [ ! -f "$VENV_PIP" ]; then
 fi
 
 log_info "Installing Python core dependencies..."
-"$VENV_PIP" install --quiet --upgrade pip
+"$VENV_PIP" install --quiet --upgrade pip 2>/dev/null || true
 "$VENV_PIP" install --quiet -e "$INSTALL_DIR" 2>/dev/null || "$VENV_PIP" install --quiet -r "$INSTALL_DIR/requirements.txt"
 export PYTHONPATH="$INSTALL_DIR:${PYTHONPATH:-}"
 log_success "Environment & core dependencies installed successfully."
@@ -682,7 +685,7 @@ if [ -w /usr/local/bin ]; then
         SYMLINK_CREATED=true
         log_success "Global symlink created in /usr/local/bin/ops-assistant"
     fi
-elif [ -n "$SUDO" ]; then
+elif [ -n "$SUDO" ] && sudo -n true 2>/dev/null; then
     $SUDO mkdir -p /usr/local/bin 2>/dev/null || true
     if $SUDO ln -sf "$WRAPPER_FILE" /usr/local/bin/ops-assistant 2>/dev/null; then
         SYMLINK_CREATED=true
@@ -767,14 +770,18 @@ fi
 ENHANCE_SCRIPT="$INSTALL_DIR/enhance.sh"
 if [ -f "$ENHANCE_SCRIPT" ]; then
     chmod +x "$ENHANCE_SCRIPT"
+    ENHANCE_MODEL="$CHOSEN_MODEL"
+    if [ "$SKIP_MODEL_DOWNLOAD" = true ]; then
+        ENHANCE_MODEL="deterministic"
+    fi
     log_info "Spawning background enhancement task (runtime, model weights, knowledge base)..."
-    nohup "$ENHANCE_SCRIPT" "$VENV_PY" "$INSTALL_DIR" "$TARGET_DISTRO" "$CHOSEN_MODEL" "$VENV_PIP" >/dev/null 2>&1 &
+    nohup "$ENHANCE_SCRIPT" "$VENV_PY" "$INSTALL_DIR" "$TARGET_DISTRO" "$ENHANCE_MODEL" "$VENV_PIP" >/dev/null 2>&1 &
     ENHANCE_PID=$!
     disown "$ENHANCE_PID" 2>/dev/null || true
     
     "$VENV_PY" -c "
 from ops_assistant.config import set_install_phase
-mkey = '$CHOSEN_MODEL'
+mkey = '$ENHANCE_MODEL'
 pid = int('$ENHANCE_PID')
 if mkey != 'deterministic':
     set_install_phase('enhancing', pending_model_key=mkey, enhancement_pid=pid)

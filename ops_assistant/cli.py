@@ -2572,6 +2572,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="AI-Powered Linux Operations Assistant CLI"
     )
+    parser.add_argument("--version", "-v", action="version", version="ops-assistant 1.0.0 (AI-Powered Linux Operations Assistant)")
     parser.add_argument("query", nargs="?", type=str, help="Natural language diagnostic query or operation command", default=None)
     parser.add_argument("--distro", "-d", type=str, help="Simulate / override Linux distribution family (debian, rhel, arch, alpine, suse, boss)", default=None)
     parser.add_argument("--provider", "-p", type=str, choices=["auto", "deterministic", "gguf", "ollama"], default="auto", help="Reasoning backend engine (auto, deterministic, gguf, ollama)")
