@@ -35,6 +35,28 @@ log_success() { echo -e "${GREEN}[✓]${RESET} $1"; }
 log_warn() { echo -e "${YELLOW}[!]${RESET} $1"; }
 log_error() { echo -e "${RED}[✗]${RESET} $1"; }
 
+prompt_read() {
+    local prompt_msg="$1"
+    local var_name="$2"
+    local default_val="${3:-}"
+    local user_val=""
+
+    if [ "${AUTO_YES:-false}" = true ]; then
+        user_val="y"
+    elif [ -t 0 ]; then
+        read -r -p "$prompt_msg" user_val || user_val=""
+    elif [ -e /dev/tty ] && [ -r /dev/tty ]; then
+        read -r -p "$prompt_msg" user_val < /dev/tty || user_val=""
+    else
+        user_val="$default_val"
+    fi
+
+    if [ -z "$user_val" ] && [ -n "$default_val" ]; then
+        user_val="$default_val"
+    fi
+    printf -v "$var_name" '%s' "$user_val"
+}
+
 AUTO_YES=false
 PURGE=false
 
@@ -63,7 +85,7 @@ echo ""
 
 if [ "$AUTO_YES" = false ]; then
     echo -e "${YELLOW}Are you sure you want to uninstall ops-assistant? [y/N]${RESET}"
-    read -r -p "> " CONFIRM
+    prompt_read "> " CONFIRM "n"
     if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
         log_info "Uninstallation cancelled."
         exit 0

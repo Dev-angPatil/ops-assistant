@@ -22,12 +22,30 @@ set -eo pipefail
 export LC_ALL=C
 
 # ------------------------------------------------------------------------------
-# 0. Terminal TTY, Colors & Command-Line Option Parsing
+# 0. Terminal TTY, Colors & Safe Prompt Reader
 # ------------------------------------------------------------------------------
-# If running via 'curl | bash', stdin is a pipe. Reconnect stdin to /dev/tty for interactive prompts if available.
-if [ ! -t 0 ] && [ -e /dev/tty ]; then
-    exec < /dev/tty 2>/dev/null || true
-fi
+# Safe prompt reader that supports direct execution, 'curl | bash', and non-interactive runs
+prompt_read() {
+    local prompt_msg="$1"
+    local var_name="$2"
+    local default_val="${3:-}"
+    local user_val=""
+
+    if [ "${NON_INTERACTIVE:-false}" = true ]; then
+        user_val="$default_val"
+    elif [ -t 0 ]; then
+        read -r -p "$prompt_msg" user_val || user_val=""
+    elif [ -e /dev/tty ] && [ -r /dev/tty ]; then
+        read -r -p "$prompt_msg" user_val < /dev/tty || user_val=""
+    else
+        user_val="$default_val"
+    fi
+
+    if [ -z "$user_val" ] && [ -n "$default_val" ]; then
+        user_val="$default_val"
+    fi
+    printf -v "$var_name" '%s' "$user_val"
+}
 
 # Detect color support
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -318,7 +336,7 @@ elif [ "$NON_INTERACTIVE" = false ]; then
     echo -e "${BOLD}Target Distribution Profile:${RESET} [${GREEN}$DISTRO_ID${RESET}]"
     echo -e "Press ${BOLD}[Enter]${RESET} to keep [${GREEN}$DISTRO_ID${RESET}], or select an override:"
     echo -e "  ${DIM}1) debian/ubuntu  2) rhel/rocky/fedora  3) arch  4) alpine  5) opensuse${RESET}"
-    read -r -p "Select [Enter = $DISTRO_ID]: " DISTRO_CHOICE || DISTRO_CHOICE=""
+    prompt_read "Select [Enter = $DISTRO_ID]: " DISTRO_CHOICE "$DISTRO_ID"
 
     case "$DISTRO_CHOICE" in
         1) TARGET_DISTRO="ubuntu" ;;
@@ -361,7 +379,7 @@ if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
         DO_INSTALL="y"
         if [ "$NON_INTERACTIVE" = false ]; then
             echo -e "${YELLOW}Would you like to auto-install dependencies using '$PKG_MGR'? [Y/n]${RESET}"
-            read -r -p "> " USER_DO_INSTALL || USER_DO_INSTALL="y"
+            prompt_read "> " USER_DO_INSTALL "y"
             if [ -n "$USER_DO_INSTALL" ]; then DO_INSTALL="$USER_DO_INSTALL"; fi
         fi
 
@@ -536,7 +554,7 @@ else
 
     echo -e "${BOLD}Select your preferred AI Engine / Model [1-9]:${RESET}"
     echo -e "  ${DIM}• Press [Enter] to accept the recommended model (${GREEN}${REC_KEY}${DIM})${RESET}"
-    read -r -p "Enter choice [1-9] (default = recommended): " MODEL_CHOICE || MODEL_CHOICE=""
+    prompt_read "Enter choice [1-9] (default = recommended): " MODEL_CHOICE "$REC_KEY"
 
     if [ -z "$MODEL_CHOICE" ]; then
         CHOSEN_MODEL="$REC_KEY"
@@ -551,7 +569,14 @@ else
             7) CHOSEN_MODEL="mistral-7b-instruct" ;;
             8) CHOSEN_MODEL="deepseek-r1-distill-qwen-7b" ;;
             9) CHOSEN_MODEL="ollama"; PROVIDER="ollama" ;;
-            *) log_warn "Invalid selection. Defaulting to recommended model: $REC_KEY"; CHOSEN_MODEL="$REC_KEY" ;;
+            *)
+                if [ "$MODEL_CHOICE" = "$REC_KEY" ]; then
+                    CHOSEN_MODEL="$REC_KEY"
+                else
+                    log_warn "Invalid selection. Defaulting to recommended model: $REC_KEY"
+                    CHOSEN_MODEL="$REC_KEY"
+                fi
+                ;;
         esac
     fi
 fi
@@ -588,7 +613,7 @@ elif [ "$PROVIDER" = "ollama" ]; then
     OLLAMA_MODEL="${CLI_OLLAMA_MODEL:-llama3:8b}"
     if [ "$NON_INTERACTIVE" = false ] && [ -z "$CLI_OLLAMA_MODEL" ]; then
         echo -e "Enter Ollama model name (default: ${GREEN}$OLLAMA_MODEL${RESET}):"
-        read -r -p "> " USER_OLLAMA_MODEL || USER_OLLAMA_MODEL=""
+        prompt_read "> " USER_OLLAMA_MODEL "$OLLAMA_MODEL"
         if [ -n "$USER_OLLAMA_MODEL" ]; then
             OLLAMA_MODEL="$USER_OLLAMA_MODEL"
         fi
