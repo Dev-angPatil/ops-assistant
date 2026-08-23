@@ -50,13 +50,22 @@ def is_pid_alive(pid: Optional[int]) -> bool:
 class InstallTracker:
     """Manages reading and writing background installation & enhancement state."""
 
-    def __init__(self, state_file: Optional[Path] = None):
+    def __init__(self, state_file: Optional[Path] = None, config_manager: Optional[Any] = None):
         self.state_file = state_file or get_state_file()
         self.log_file = get_log_file()
+        self.config_manager = config_manager
+
+    def _get_cfg(self) -> Dict[str, Any]:
+        if self.config_manager is not None:
+            if hasattr(self.config_manager, "load"):
+                return self.config_manager.load()
+            elif hasattr(self.config_manager, "get_config"):
+                return self.config_manager.get_config()
+        return get_config()
 
     def get_status(self) -> Dict[str, Any]:
         """Read the current enhancement state, verifying active process liveness."""
-        cfg = get_config()
+        cfg = self._get_cfg()
         default_phase = cfg.get("install_phase", "complete")
         pending_model = cfg.get("pending_model_key")
 
@@ -157,7 +166,10 @@ class InstallTracker:
             "log_file": str(self.log_file),
         }
         self._save_state(state)
-        set_install_phase("enhancing", pending_model_key=model_key, enhancement_pid=current_pid)
+        if self.config_manager is not None and hasattr(self.config_manager, "set_install_phase"):
+            self.config_manager.set_install_phase("enhancing", pending_model_key=model_key, enhancement_pid=current_pid)
+        else:
+            set_install_phase("enhancing", pending_model_key=model_key, enhancement_pid=current_pid)
         return state
 
     def mark_step(
@@ -209,15 +221,26 @@ class InstallTracker:
 
         self._save_state(st)
 
-        finalize_enhancement(
-            model_key=model_key or st.get("model_key"),
-            model_path=model_path,
-            hardware_tier=hardware_tier,
-            threads=threads,
-            ctx_size=ctx_size,
-            gpu_layers=gpu_layers,
-            provider=provider,
-        )
+        if self.config_manager is not None and hasattr(self.config_manager, "finalize_enhancement"):
+            self.config_manager.finalize_enhancement(
+                model_key=model_key or st.get("model_key"),
+                model_path=model_path,
+                hardware_tier=hardware_tier,
+                threads=threads,
+                ctx_size=ctx_size,
+                gpu_layers=gpu_layers,
+                provider=provider,
+            )
+        else:
+            finalize_enhancement(
+                model_key=model_key or st.get("model_key"),
+                model_path=model_path,
+                hardware_tier=hardware_tier,
+                threads=threads,
+                ctx_size=ctx_size,
+                gpu_layers=gpu_layers,
+                provider=provider,
+            )
         return st
 
     def mark_failed(self, error_msg: str) -> Dict[str, Any]:

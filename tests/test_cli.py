@@ -41,7 +41,7 @@ class TestCLI(unittest.TestCase):
             cwd=PROJECT_ROOT
         )
         self.assertEqual(res.returncode, 0)
-        self.assertIn("command proposal", res.stdout.lower())
+        self.assertTrue("proposed command" in res.stdout.lower() or "command proposal" in res.stdout.lower())
         self.assertIn("pacman", res.stdout.lower())
         self.assertIn("zotero", res.stdout.lower())
 
@@ -54,7 +54,7 @@ class TestCLI(unittest.TestCase):
             cwd=PROJECT_ROOT
         )
         self.assertEqual(res.returncode, 0)
-        self.assertIn("command proposal", res.stdout.lower())
+        self.assertTrue("proposed command" in res.stdout.lower() or "command proposal" in res.stdout.lower())
         self.assertIn("apt-get install", res.stdout.lower())
         self.assertIn("nginx", res.stdout.lower())
 

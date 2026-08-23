@@ -98,6 +98,21 @@ body {
   -webkit-backdrop-filter: blur(28px);
   border-radius: 9999px;
   box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.nav-capsule::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 .nav-capsule-tab {
@@ -113,6 +128,7 @@ body {
   cursor: pointer;
   border: 1px solid transparent;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .nav-capsule-tab:hover {

@@ -36,53 +36,53 @@
   <!-- ======================================================== -->
   <!-- TOP FULL-WIDTH HORIZONTAL NAVBAR -->
   <!-- ======================================================== -->
-  <header class="sticky top-0 z-50 w-full px-6 sm:px-10 py-3.5 border-b border-white/10 bg-black/80 backdrop-blur-2xl flex items-center justify-between pointer-events-auto shadow-[0_10px_35px_rgba(0,0,0,0.7)] mb-4">
+  <header class="sticky top-0 z-50 w-full px-4 sm:px-8 lg:px-10 py-3.5 border-b border-white/10 bg-black/80 backdrop-blur-2xl flex items-center justify-between gap-3 pointer-events-auto shadow-[0_10px_35px_rgba(0,0,0,0.7)] mb-4">
     
     <!-- Left: Big LinuxOps Branding on Top-Left -->
-    <div class="flex items-center space-x-3.5">
-      <div class="w-11 h-11 rounded-full bg-white/10 border border-white/25 backdrop-blur-xl flex items-center justify-center text-white shadow-[0_0_20px_rgba(0,210,255,0.3)]">
+    <div class="flex items-center space-x-3.5 shrink-0">
+      <div class="w-11 h-11 rounded-full bg-white/10 border border-white/25 backdrop-blur-xl flex items-center justify-center text-white shadow-[0_0_20px_rgba(0,210,255,0.3)] shrink-0">
         <i data-lucide="cpu" class="w-6 h-6 text-cyan-300"></i>
       </div>
-      <div class="font-editorial italic text-2xl sm:text-3xl tracking-wide text-white font-normal">
+      <div class="font-editorial italic text-2xl sm:text-3xl tracking-wide text-white font-normal whitespace-nowrap">
         Linux<span class="not-italic font-sans font-light text-slate-300">Ops</span>
       </div>
     </div>
 
     <!-- Center: Horizontal Full-Width Capsule Navigation -->
-    <nav class="nav-capsule px-3.5 py-1.5 flex items-center space-x-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.6)]">
-      <button onclick="switchTab('home')" id="tab-btn-home" class="nav-capsule-tab active text-sm sm:text-base px-4 py-2">
+    <nav class="nav-capsule px-2.5 sm:px-3.5 py-1.5 flex items-center space-x-1 sm:space-x-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.6)] max-w-full overflow-x-auto scrollbar-none flex-nowrap shrink">
+      <button onclick="switchTab('home')" id="tab-btn-home" class="nav-capsule-tab active text-sm sm:text-base px-3.5 sm:px-4 py-2 shrink-0">
         <span>Home</span>
       </button>
-      <button onclick="switchTab('health')" id="tab-btn-health" class="nav-capsule-tab text-sm sm:text-base px-4 py-2">
+      <button onclick="switchTab('health')" id="tab-btn-health" class="nav-capsule-tab text-sm sm:text-base px-3.5 sm:px-4 py-2 shrink-0">
         <span>Health &amp; PSI</span>
       </button>
-      <button onclick="switchTab('services')" id="tab-btn-services" class="nav-capsule-tab text-sm sm:text-base px-4 py-2">
+      <button onclick="switchTab('services')" id="tab-btn-services" class="nav-capsule-tab text-sm sm:text-base px-3.5 sm:px-4 py-2 shrink-0">
         <span>Services</span>
       </button>
-      <button onclick="switchTab('storage')" id="tab-btn-storage" class="nav-capsule-tab text-sm sm:text-base px-4 py-2">
+      <button onclick="switchTab('storage')" id="tab-btn-storage" class="nav-capsule-tab text-sm sm:text-base px-3.5 sm:px-4 py-2 shrink-0">
         <span>Storage</span>
       </button>
-      <button onclick="switchTab('network')" id="tab-btn-network" class="nav-capsule-tab text-sm sm:text-base px-4 py-2">
+      <button onclick="switchTab('network')" id="tab-btn-network" class="nav-capsule-tab text-sm sm:text-base px-3.5 sm:px-4 py-2 shrink-0">
         <span>Network</span>
       </button>
-      <button onclick="switchTab('taxonomy')" id="tab-btn-taxonomy" class="nav-capsule-tab hidden md:inline-flex text-sm sm:text-base px-4 py-2">
+      <button onclick="switchTab('taxonomy')" id="tab-btn-taxonomy" class="nav-capsule-tab hidden md:inline-flex text-sm sm:text-base px-3.5 sm:px-4 py-2 shrink-0">
         <span>Taxonomy</span>
       </button>
-      <button onclick="switchTab('packages')" id="tab-btn-packages" class="nav-capsule-tab hidden lg:inline-flex text-sm sm:text-base px-4 py-2">
+      <button onclick="switchTab('packages')" id="tab-btn-packages" class="nav-capsule-tab hidden lg:inline-flex text-sm sm:text-base px-3.5 sm:px-4 py-2 shrink-0">
         <span>Packages</span>
       </button>
-      <button onclick="switchTab('desktop')" id="tab-btn-desktop" class="nav-capsule-tab hidden lg:inline-flex text-sm sm:text-base px-4 py-2">
+      <button onclick="switchTab('desktop')" id="tab-btn-desktop" class="nav-capsule-tab hidden lg:inline-flex text-sm sm:text-base px-3.5 sm:px-4 py-2 shrink-0">
         <span>Runner</span>
       </button>
       
       <!-- Primary Action Button in Nav Pill -->
-      <button onclick="focusCommandDeck()" class="btn-editorial-primary ml-1.5 !py-2 !px-4 text-xs sm:text-sm font-tech">
+      <button onclick="focusCommandDeck()" class="btn-editorial-primary ml-1.5 !py-2 !px-4 text-xs sm:text-sm font-tech shrink-0">
         <span>AI Launch ↗</span>
       </button>
     </nav>
 
     <!-- Right: Action Controls (History Drawer + Voice TTS + SFX) -->
-    <div class="flex items-center space-x-2 sm:space-x-3">
+    <div class="flex items-center space-x-2 sm:space-x-3 shrink-0">
       <!-- History Drawer Toggle Button -->
       <button 
         id="btn-toggle-history" 
@@ -158,7 +158,7 @@
     <!-- ======================================================== -->
     <div id="tab-content-home" class="tab-content">
       
-      <div id="home-cockpit-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-6 xl:gap-8 items-stretch h-[calc(100vh-140px)] min-h-[760px] transition-all duration-300">
+      <div id="home-cockpit-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-6 xl:gap-8 items-stretch min-h-[calc(100vh-140px)] lg:h-[calc(100vh-140px)] transition-all duration-300">
         
         <!-- ======================================================== -->
         <!-- LEFT/MAIN ARENA: HERO, SEARCH DECK & ZERO-G ORB -->

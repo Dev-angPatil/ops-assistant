@@ -59,5 +59,33 @@ class TestNLCompiler(unittest.TestCase):
         self.assertIn("Successfully created", exp)
         self.assertIn("test", exp)
 
+    def test_rename_latest_screenshot(self):
+        query = 'rename the latest screen shot to "imp"'
+        res = NaturalLanguageCompiler.compile(query)
+        self.assertIsNotNone(res)
+        self.assertEqual(res["intent"], "file_rename")
+        self.assertIn("imp", res["command"])
+        self.assertIn("find", res["command"])
+
+    def test_rename_file(self):
+        query = "rename file old_notes.txt to new_notes.txt"
+        res = NaturalLanguageCompiler.compile(query)
+        self.assertIsNotNone(res)
+        self.assertEqual(res["intent"], "file_rename")
+        self.assertEqual(res["command"], "mv 'old_notes.txt' 'new_notes.txt'")
+
+    def test_rename_downloads_folder(self):
+        query = 'rename the downloads to "downloaded"'
+        res = NaturalLanguageCompiler.compile(query)
+        self.assertIsNotNone(res)
+        self.assertEqual(res["intent"], "file_rename")
+        self.assertEqual(res["command"], "mv 'downloads' 'downloaded'")
+
+        query2 = "rename the downloads folder to downloaded"
+        res2 = NaturalLanguageCompiler.compile(query2)
+        self.assertIsNotNone(res2)
+        self.assertEqual(res2["command"], "mv 'downloads' 'downloaded'")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -75,6 +75,10 @@ class ConfigManager:
         except Exception:
             return merged
 
+    def get_config(self) -> Dict[str, Any]:
+        """Alias for load() returning the current active config dictionary."""
+        return self.load()
+
     def save(self, config: Dict[str, Any]) -> bool:
         """Persist configuration dictionary to disk."""
         try:
