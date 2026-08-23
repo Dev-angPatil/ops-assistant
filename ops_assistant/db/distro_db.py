@@ -134,6 +134,16 @@ class DistroKnowledgeBase:
                 wiki_url TEXT,
                 UNIQUE(ecosystem_id, category, topic)
             );
+
+            CREATE TABLE IF NOT EXISTS user_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_key TEXT UNIQUE NOT NULL,
+                raw_path TEXT NOT NULL,
+                absolute_path TEXT NOT NULL,
+                description TEXT NOT NULL,
+                size_bytes INTEGER DEFAULT 0,
+                modified_time REAL DEFAULT 0
+            );
         """)
         self.conn.commit()
 
@@ -158,6 +168,7 @@ class DistroKnowledgeBase:
 
         # Always seed desktop ecosystems (Hyprland, HyDE, Wayland, Audio)
         self._seed_desktop_ecosystems()
+        self.index_user_configs()
 
     def seed_distro_packs(self, family_id: str = "all") -> None:
         """Seeds the database from modular pack folders in ops_assistant/data/packs/."""
@@ -775,6 +786,44 @@ class DistroKnowledgeBase:
             ORDER BY ecosystem_id, category
         """, (pattern, pattern, pattern, pattern, pattern))
         return [dict(row) for row in cursor.fetchall()]
+
+    def index_user_configs(self) -> int:
+        """Discovers and catalogs active user and system configuration files into SQLite."""
+        from ops_assistant.collectors.config_indexer import UserConfigIndexer
+        configs = UserConfigIndexer.scan_active_configs()
+        cursor = self.conn.cursor()
+        for cfg in configs:
+            cursor.execute("""
+                INSERT OR REPLACE INTO user_configs (config_key, raw_path, absolute_path, description, size_bytes, modified_time)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (cfg["config_key"], cfg["raw_path"], cfg["absolute_path"], cfg["description"], cfg["size_bytes"], cfg["modified_time"]))
+        self.conn.commit()
+        return len(configs)
+
+    def get_user_configs(self) -> List[Dict[str, Any]]:
+        """Returns all indexed configuration files from the database."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM user_configs ORDER BY config_key")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def find_user_config(self, key_or_name: str) -> Optional[Dict[str, Any]]:
+        """Finds a specific user configuration by application name or key (e.g. 'hyprland', 'waybar', 'zsh')."""
+        cursor = self.conn.cursor()
+        key_clean = key_or_name.lower().strip()
+        pattern = f"%{key_clean}%"
+        cursor.execute("""
+            SELECT * FROM user_configs
+            WHERE config_key = ? OR config_key LIKE ? OR raw_path LIKE ? OR description LIKE ?
+            ORDER BY
+                CASE
+                    WHEN config_key = ? THEN 1
+                    WHEN raw_path LIKE ? THEN 2
+                    ELSE 3
+                END
+            LIMIT 1
+        """, (key_clean, pattern, pattern, pattern, key_clean, f"%/{key_clean}/%"))
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
     def close(self) -> None:
         """Closes the underlying SQLite database connection."""

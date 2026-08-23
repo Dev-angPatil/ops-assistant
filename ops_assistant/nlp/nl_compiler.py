@@ -410,6 +410,33 @@ class NaturalLanguageCompiler:
                 "explanation_paragraph": "Executes `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` to toggle audio mute."
             }
 
+        # 3.8 User Configuration Discovery & Editing
+        m_cfg_where = re.search(r"\b(?:where\s+is|find|locate|show)\s+(?:my\s+)?(?P<app>[\w\.\-]+)\s+config(?:uration)?\b", clean, re.IGNORECASE)
+        if m_cfg_where:
+            app = m_cfg_where.group("app").lower()
+            return {
+                "command": f"find ~/.config/{app} ~/.config /etc -maxdepth 2 -name '*{app}*' -o -name 'config*' 2>/dev/null | grep -i '{app}' | head -n 5",
+                "description": f"Locates configuration files and directory for '{app}'.",
+                "intent": "file_find",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will locate your configuration file for '{app}'.",
+                "explanation_paragraph": f"The assistant searches standard user and system configuration directories (~/.config/{app}, /etc) for active settings files."
+            }
+
+        m_cfg_open = re.search(r"\b(?:open|edit|view)\s+(?:my\s+)?(?P<app>[\w\.\-]+)\s+config(?:uration)?\b", clean, re.IGNORECASE)
+        if m_cfg_open:
+            app = m_cfg_open.group("app").lower()
+            return {
+                "command": f"cfg=$(find ~/.config/{app} ~/.config /etc -maxdepth 2 -type f \\( -name '*{app}*.conf' -o -name '*{app}*.json*' -o -name '*{app}*.toml' -o -name '*{app}*.rasi' -o -name 'config*' -o -name 'init.lua' \\) 2>/dev/null | grep -i '{app}' | head -n 1); [ -n \"$cfg\" ] && (xdg-open \"$cfg\" 2>/dev/null || \"${{EDITOR:-nano}}\" \"$cfg\") || echo 'No configuration file found for {app}'",
+                "description": f"Opens the configuration file for '{app}' in default editor or viewer.",
+                "intent": "file_show",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will open your '{app}' configuration file.",
+                "explanation_paragraph": f"The assistant locates your '{app}' configuration and opens it using your desktop handler or preferred editor."
+            }
+
         # 4. System Resource & Health Inquiries
         # e.g. "check my CPU uses", "check ram", "how much memory is free"
         if re.search(r"\b(?:check|show|get|view|inspect)\s+(?:my\s+)?(?:cpu|processor)(?:\s+(?:uses|usage|load|status|utilization))?\b", clean, re.IGNORECASE) or clean.lower() in ("cpu uses", "cpu usage", "check cpu"):

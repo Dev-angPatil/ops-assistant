@@ -954,8 +954,7 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     # Files
     # -----------------------------------------------------------------------
     (IntentType.FILE_FIND, [
-        (r"\b(find|locate|search for|where is) (file |)(?P<path>[\w\*\.\-\/~]+)\b", _extract_path),
-        (r"\bwhere is (the |my |)(?P<path>[\w\*\.\-\/~]+)(?: (file|config|conf))?\b", _extract_path),
+        (r"\b(?:where is|find|locate|search for)\s+(?:the\s+|my\s+|file\s+)?(?P<path>[\w\*\.\-\/~]+)(?:\s+(?:file|config|conf|directory|folder))?\b", _extract_path),
     ]),
 
     (IntentType.FILE_SHOW, [

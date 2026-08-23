@@ -1246,6 +1246,51 @@ class ReActAgent:
                 result["output"] = storage_ops.organize_folder(target, dry_run=True)
             return result
 
+        elif intent.type == IntentType.FILE_FIND:
+            target = args.get("path") or args.get("name", "")
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["risk_score"] = 0.05
+            cfg_match = self.distro_db.find_user_config(target)
+            if cfg_match:
+                result["command"] = f"ls -lh '{cfg_match['absolute_path']}' && echo 'Config: {cfg_match['description']}'"
+                result["command_description"] = f"Locates indexed configuration file: {cfg_match['raw_path']} ({cfg_match['description']})."
+                result["summary"] = f"Locate config '{target}'"
+            else:
+                result["command"] = f"find ~/.config/{target} ~/.config ~ /etc -maxdepth 3 -name '*{target}*' 2>/dev/null | head -n 10"
+                result["command_description"] = f"Locates files matching '{target}' across user and system directories."
+                result["summary"] = f"Locate file '{target}'"
+            if execute:
+                executor = SafeExecutor()
+                result["output"] = executor.execute(result["command"])
+                result["executed"] = True
+            return result
+
+        elif intent.type == IntentType.FILE_SHOW:
+            target = args.get("path") or ""
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["risk_score"] = 0.05
+            result["command"] = f"cat '{target}'" if target else "cat"
+            result["command_description"] = f"Displays the content of '{target}'."
+            result["summary"] = f"Display file {target}"
+            if execute:
+                executor = SafeExecutor()
+                result["output"] = executor.execute(result["command"])
+                result["executed"] = True
+            return result
+
+        elif intent.type == IntentType.FILE_EDIT:
+            target = args.get("path") or ""
+            result["safety_level"] = SafetyLevel.READ_ONLY.value
+            result["risk_score"] = 0.05
+            result["command"] = f"xdg-open '{target}' 2>/dev/null || ${{EDITOR:-nano}} '{target}'"
+            result["command_description"] = f"Opens '{target}' in preferred editor or viewer."
+            result["summary"] = f"Open file {target}"
+            if execute:
+                executor = SafeExecutor()
+                result["output"] = executor.execute(result["command"])
+                result["executed"] = True
+            return result
+
         elif intent.type in (IntentType.STORAGE_ANALYSE, IntentType.SYSTEM_CHECK_DISK):
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["command"] = "df -h"

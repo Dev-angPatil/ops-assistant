@@ -695,6 +695,7 @@ def run_setup_wizard(
         print("\nSetup cancelled.")
         return False
 
+    res = False
     if not choice or choice == "1":
         mkey = rec.get("model_key")
         if not mkey or not rec.get("download_required"):
@@ -706,28 +707,28 @@ def run_setup_wizard(
                 ctx_size=caps.recommended_ctx_size,
                 gpu_layers=caps.recommended_gpu_layers,
             )
-            return True
-
-        avail = dl.list_available_models()
-        if mkey in avail and avail[mkey]["is_downloaded"]:
-            print(f"\n✓ Model '{mkey}' is already downloaded and verified.")
-            model_path = avail[mkey]["local_path"]
+            res = True
         else:
-            print(f"\n[*] Downloading recommended model '{mkey}'...")
-            download_model_cli(mkey, dl)
-            model_path = str(dl.target_dir / MODEL_CATALOG[mkey]["filename"])
+            avail = dl.list_available_models()
+            if mkey in avail and avail[mkey]["is_downloaded"]:
+                print(f"\n✓ Model '{mkey}' is already downloaded and verified.")
+                model_path = avail[mkey]["local_path"]
+            else:
+                print(f"\n[*] Downloading recommended model '{mkey}'...")
+                download_model_cli(mkey, dl)
+                model_path = str(dl.target_dir / MODEL_CATALOG[mkey]["filename"])
 
-        set_setup_completed(
-            provider="gguf",
-            model_key=mkey,
-            model_path=model_path,
-            hardware_tier=prof.compute_tier,
-            threads=caps.recommended_threads,
-            ctx_size=caps.recommended_ctx_size,
-            gpu_layers=caps.recommended_gpu_layers,
-        )
-        print(f"\n✓ Setup completed successfully! Model '{mkey}' activated.")
-        return True
+            set_setup_completed(
+                provider="gguf",
+                model_key=mkey,
+                model_path=model_path,
+                hardware_tier=prof.compute_tier,
+                threads=caps.recommended_threads,
+                ctx_size=caps.recommended_ctx_size,
+                gpu_layers=caps.recommended_gpu_layers,
+            )
+            print(f"\n✓ Setup completed successfully! Model '{mkey}' activated.")
+            res = True
 
     elif choice == "2":
         models = list(MODEL_CATALOG.items())
@@ -779,7 +780,7 @@ def run_setup_wizard(
                     gpu_layers=caps.recommended_gpu_layers,
                 )
                 print(f"\n✓ Setup completed! Model '{chosen_key}' configured.")
-                return True
+                res = True
             else:
                 print("Invalid selection.")
                 return False
@@ -796,7 +797,7 @@ def run_setup_wizard(
             gpu_layers=caps.recommended_gpu_layers,
         )
         print("\n✓ Configured for Deterministic Fast-Path Engine (<50ms, 0 MB memory footprint).")
-        return True
+        res = True
 
     elif choice == "4":
         try:
@@ -817,7 +818,7 @@ def run_setup_wizard(
             cfg["ollama_model"] = omodel
             _config_manager.save(cfg)
             print(f"\n✓ Configured for Ollama at {endpoint} with model '{omodel}'.")
-            return True
+            res = True
         except (KeyboardInterrupt, EOFError):
             return False
 
@@ -825,7 +826,39 @@ def run_setup_wizard(
         print("\nSetup skipped. Using default fallback configuration.")
         return False
 
-    return False
+    if res:
+        run_system_onboarding_scan()
+    return res
+
+
+def run_system_onboarding_scan():
+    """Performs deep system and desktop introspection, seeds knowledge packs, and indexes config files."""
+    db = DistroKnowledgeBase()
+    detector = DistroDetector(db=db)
+    introspector = HostIntrospector()
+
+    distro_info = detector.detect()
+    caps = introspector.introspect()
+    indexed_count = db.index_user_configs()
+
+    if HAS_RICH and console:
+        table = Table(title="✨ Ground-Truth System & Desktop Intelligence Map", border_style="green", show_header=True, header_style="bold green")
+        table.add_column("Layer", style="bold cyan", width=22)
+        table.add_column("Detected Environment & Grounded Context", style="white")
+
+        table.add_row("Distribution OS", f"{distro_info.distro_name} ({distro_info.family_id}) — Package Manager: [bold yellow]{distro_info.package_manager}[/bold yellow]")
+        table.add_row("Desktop & Theme", f"{caps.desktop_environment or 'Headless'}" + (f" (Theme: [bold magenta]{caps.theme_framework}[/bold magenta])" if caps.theme_framework else ""))
+        table.add_row("Audio & Compositor", f"Wallpaper: [cyan]{caps.wallpaper_backend}[/cyan] | Audio: [cyan]{caps.audio_backend}[/cyan]")
+        table.add_row("Desktop Knowledge", f"Seeded operational packs: [bold green]{', '.join(caps.detected_ecosystems)}[/bold green]")
+        table.add_row("User Configs Indexed", f"[bold green]{indexed_count} active configuration files[/bold green] cataloged into SQLite")
+        console.print(table)
+    else:
+        print("\n✨ Ground-Truth System & Desktop Intelligence Map:")
+        print(f"• Distribution OS      : {distro_info.distro_name} ({distro_info.family_id}) [{distro_info.package_manager}]")
+        print(f"• Desktop & Theme      : {caps.desktop_environment} ({caps.theme_framework})")
+        print(f"• Wallpaper & Audio    : {caps.wallpaper_backend} | {caps.audio_backend}")
+        print(f"• Knowledge Ecosystems : {', '.join(caps.detected_ecosystems)}")
+        print(f"• User Configs Indexed : {indexed_count} configuration files cataloged\n")
 
 
 def render_proactive_audit():
