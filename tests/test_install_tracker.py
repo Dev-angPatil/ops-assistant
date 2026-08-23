@@ -24,7 +24,7 @@ def temp_env(tmp_path):
     state_file = tmp_path / "enhance.state.json"
     
     cfg_mgr = ConfigManager(config_file=config_file)
-    tracker = InstallTracker(state_file=state_file)
+    tracker = InstallTracker(state_file=state_file, config_manager=cfg_mgr)
     
     return {"config_file": config_file, "state_file": state_file, "cfg_mgr": cfg_mgr, "tracker": tracker}
 

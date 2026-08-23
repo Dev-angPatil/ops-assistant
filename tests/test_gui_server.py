@@ -134,6 +134,18 @@ class TestGUIServer(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("disks", data)
 
+    def test_api_sandbox_status(self):
+        status, data = self._get("/api/sandbox/status")
+        self.assertEqual(status, 200)
+        self.assertIn("primary_isolation_mode", data)
+        self.assertIn("unshare_binary_available", data)
+
+    def test_api_sandbox_verify(self):
+        status, data = self._post("/api/sandbox/verify", {"command": "systemctl restart nginx"})
+        self.assertEqual(status, 200)
+        self.assertIn("is_verified", data)
+        self.assertIn("isolation_mode", data)
+
 
 if __name__ == "__main__":
     unittest.main()

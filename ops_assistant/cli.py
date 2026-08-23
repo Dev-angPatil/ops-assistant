@@ -970,13 +970,20 @@ def render_safety_inspection(command_str: str, validator: Optional[CommandSafety
     nodes = val.parse_ast(command_str)
     expanded, deobf_findings = val.deobfuscate(command_str)
 
+    from ops_assistant.tools.sandbox_probe import EphemeralSandboxProbe
+    probe = EphemeralSandboxProbe()
+    probe_res = probe.verify_command(command_str)
+
     if HAS_RICH and console:
         badge = format_safety_badge(lvl)
         content = (
             f"[bold]Target Command:[/bold] [bold yellow]{command_str}[/bold yellow]\n\n"
             f"[bold]Overall Safety Tier:[/bold] {badge}\n"
             f"[bold]Risk Score:[/bold] [bold]{risk:.2f}[/bold] / 1.00\n"
-            f"[bold]Evaluation Rationale:[/bold] {reason}\n"
+            f"[bold]Evaluation Rationale:[/bold] {reason}\n\n"
+            f"[bold]Sandbox Probe:[/bold] {'[green]✓ VERIFIED[/green]' if probe_res.is_verified else '[red]✗ FAILED[/red]'} "
+            f"([cyan]{probe_res.isolation_mode}[/cyan] • {probe_res.latency_ms:.1f}ms)\n"
+            f"[bold]Sandbox Isolation Note:[/bold] {probe_res.notes}\n"
         )
         if deobf_findings:
             content += "\n[bold red]De-Obfuscation Findings:[/bold red]\n"
@@ -2566,7 +2573,7 @@ def main():
         description="AI-Powered Linux Operations Assistant CLI"
     )
     parser.add_argument("query", nargs="?", type=str, help="Natural language diagnostic query or operation command", default=None)
-    parser.add_argument("--distro", "-d", type=str, help="Simulate / override Linux distribution family (debian, rhel, arch, alpine, suse)", default=None)
+    parser.add_argument("--distro", "-d", type=str, help="Simulate / override Linux distribution family (debian, rhel, arch, alpine, suse, boss)", default=None)
     parser.add_argument("--provider", "-p", type=str, choices=["auto", "deterministic", "gguf", "ollama"], default="auto", help="Reasoning backend engine (auto, deterministic, gguf, ollama)")
     parser.add_argument("--model-path", type=str, help="Path to custom local GGUF model file", default=None)
     parser.add_argument("--distro-info", action="store_true", help="Display active distro profile, installed packs, and live host runtime capabilities")

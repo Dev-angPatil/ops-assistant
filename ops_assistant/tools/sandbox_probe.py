@@ -44,6 +44,16 @@ class EphemeralSandboxProbe:
         except Exception:
             return False
 
+    def get_status(self) -> Dict[str, Any]:
+        """Returns the active isolation capability and kernel namespace support."""
+        return {
+            "unshare_binary_available": self.has_unshare,
+            "rootless_namespaces_supported": self._unshare_supported,
+            "primary_isolation_mode": "UNSHARE_ROOTLESS_NAMESPACE" if self._unshare_supported else "POSIX_SYNTAX_VALIDATOR",
+            "fallback_mode": "POSIX_SYNTAX_VALIDATOR",
+            "flags_utilized": ["-r", "-m", "-p", "-f", "--mount-proc"] if self._unshare_supported else ["-n"]
+        }
+
     def verify_command(self, command: str) -> SandboxVerificationResult:
         """Attempts isolated namespace verification, falling back to syntax dry-run."""
         start_time = time.perf_counter()

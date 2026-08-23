@@ -378,6 +378,54 @@ class NaturalLanguageCompiler:
                 "explanation_paragraph": "The assistant queried systemd via `systemctl list-units --type=service --state=running`, displaying all active background daemons and service units."
             }
 
+        # 8. Screenshot & File Rename / Move Operations
+        # e.g. "rename the latest screen shot to imp", "rename latest screenshot to 'imp'"
+        m_screen = re.search(r"^(?:please\s+)?(?:rename|move)\s+(?:the\s+)?(?:latest\s+)?(?:screenshot|screen\s+shot|screen-shot|screen\s+capture)\s+(?:to\s+|as\s+)?['\"]?(?P<newname>[^'\"]+?)['\"]?$", clean, re.IGNORECASE)
+        if m_screen:
+            raw_name = m_screen.group("newname").strip().strip("'\"")
+            cmd = (
+                f'latest=$(find ~/Pictures ~/Desktop ~/Downloads . -maxdepth 2 -type f '
+                f'\\( -iname "*screenshot*" -o -iname "*screen*" -o -iname "*.png" \\) '
+                f'-printf "%T@ %p\\n" 2>/dev/null | sort -nr | head -n 1 | cut -d\' \' -f2-); '
+                f'if [ -n "$latest" ]; then '
+                f'ext="${{latest##*.}}"; '
+                f'target_dir="$(dirname "$latest")"; '
+                f'dest="$target_dir/{raw_name}"; '
+                f'if [[ "{raw_name}" != *.* ]] && [ "$ext" != "$latest" ]; then dest="$dest.$ext"; fi; '
+                f'mv "$latest" "$dest" && echo "Renamed \'$latest\' to \'$dest\'"; '
+                f'else echo "No screenshot found in ~/Pictures, ~/Desktop, or ~/Downloads"; exit 1; fi'
+            )
+            return {
+                "command": cmd,
+                "description": f"Finds the most recent screenshot and renames it to '{raw_name}'.",
+                "intent": "file_rename",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.25,
+                "rollback_command": None,
+                "explanation": f"I will locate the newest screenshot and rename it to '{raw_name}'.",
+                "explanation_paragraph": f"The assistant compiled your request into a targeted shell pipeline that searches standard screenshot directories (`~/Pictures`, `~/Desktop`, `~/Downloads`), resolves the newest screenshot file by timestamp, and renames it to '{raw_name}' while preserving its original image extension."
+            }
+
+        # e.g. "rename file old.txt to new.txt", "rename notes.md to todo.md", "rename the downloads folder to downloaded"
+        m_rename = re.search(r"^(?:please\s+)?(?:rename|move)\s+(?:the\s+)?(?:file\s+|folder\s+|dir\s+|directory\s+)?['\"]?(?P<src>[a-zA-Z0-9_\-\.\/~]+)(?:\s+(?:folder|file|dir|directory))?['\"]?\s+(?:to\s+|as\s+)['\"]?(?P<dst>[a-zA-Z0-9_\-\.\/~]+)(?:\s+(?:folder|file|dir|directory))?['\"]?$", clean, re.IGNORECASE)
+        if m_rename:
+            src = m_rename.group("src").strip()
+            dst = m_rename.group("dst").strip()
+            cmd = f"mv '{src}' '{dst}'"
+            return {
+                "command": cmd,
+                "path": dst,
+                "src": src,
+                "dst": dst,
+                "description": f"Renames/moves '{src}' to '{dst}'.",
+                "intent": "file_rename",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.25,
+                "rollback_command": f"mv '{dst}' '{src}'",
+                "explanation": f"I will rename '{src}' to '{dst}'.",
+                "explanation_paragraph": f"The assistant compiled your request into `mv '{src}' '{dst}'`, relocating or renaming the specified file path in your working directory."
+            }
+
         return None
 
 

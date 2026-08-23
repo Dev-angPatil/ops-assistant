@@ -1335,7 +1335,7 @@ function renderAgentResponseCard(card, data) {
   if (window.lucide) lucide.createIcons();
 
   // Optional Voice TTS Output
-  if (voiceSpeechEnabled && data.summary) {
+  if (typeof ttsVoiceEnabled !== 'undefined' && ttsVoiceEnabled && data.summary) {
     speakText(data.summary);
   }
 }

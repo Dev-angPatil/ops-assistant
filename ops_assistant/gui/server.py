@@ -26,6 +26,7 @@ from ops_assistant.collectors.hub import TelemetryHub
 from ops_assistant.collectors.distro_detector import DistroDetector
 from ops_assistant.tools.executor import SafeExecutor
 from ops_assistant.tools.safety import CommandSafetyValidator
+from ops_assistant.tools.sandbox_probe import EphemeralSandboxProbe
 from ops_assistant.tools import desktop_ops, download_ops, storage_ops, process_ops, network_ops, log_ops
 from ops_assistant.models import SafetyLevel
 
@@ -348,6 +349,11 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             self._send_json({"cwd": get_working_dir()})
             return
 
+        elif path == "/api/sandbox/status":
+            probe = EphemeralSandboxProbe()
+            self._send_json(probe.get_status())
+            return
+
         elif path.startswith("/api/command/stream/"):
             session_id = path[len("/api/command/stream/"):]
             self._handle_command_stream_sse(session_id)
@@ -506,6 +512,10 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                 }, status=403)
                 return
 
+            # Run Ephemeral Sandbox Verification probe
+            probe = EphemeralSandboxProbe()
+            probe_result = probe.verify_command(command)
+
             res = self.executor.execute(command, dry_run=dry_run)
             returncode = res.get("returncode", -1)
             self._send_json({
@@ -518,8 +528,20 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                 "safety_level": val.level.value,
                 "risk_score": val.risk_score,
                 "dry_run": dry_run,
-                "rollback_command": val.suggested_rollback
+                "rollback_command": val.suggested_rollback,
+                "sandbox_probe": probe_result.to_dict()
             })
+            return
+
+        # 8b. Dedicated Ephemeral Sandbox Probe Verification Endpoint
+        elif path == "/api/sandbox/verify":
+            command = body.get("command", "").strip()
+            if not command:
+                self._send_error("Command required")
+                return
+            probe = EphemeralSandboxProbe()
+            probe_res = probe.verify_command(command)
+            self._send_json(probe_res.to_dict())
             return
 
         # 9. Rollback Execution

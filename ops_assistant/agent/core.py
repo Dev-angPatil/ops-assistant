@@ -891,7 +891,7 @@ class ReActAgent:
                 rb = f"sudo pacman -Rns --noconfirm '{pkg}'"
                 desc = f"Downloads and installs the '{pkg}' software package using pacman on {d_info.distro_name}."
             elif pkg_mgr in ("apt", "apt-get"):
-                cmd = f"sudo apt-get install -y {pkg}"
+                cmd = f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg}"
                 rb = f"sudo apt-get remove -y '{pkg}'"
                 desc = f"Downloads and installs the '{pkg}' software package using apt on {d_info.distro_name}."
             elif pkg_mgr == "dnf":
@@ -947,7 +947,7 @@ class ReActAgent:
                 rb = f"sudo pacman -S --needed --noconfirm '{pkg}'"
             elif pkg_mgr in ("apt", "apt-get"):
                 cmd = f"sudo apt-get remove -y {pkg}"
-                rb = f"sudo apt-get install -y '{pkg}'"
+                rb = f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y '{pkg}'"
             elif pkg_mgr == "dnf":
                 cmd = f"sudo dnf remove -y {pkg}"
                 rb = f"sudo dnf install -y '{pkg}'"

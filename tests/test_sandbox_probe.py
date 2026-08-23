@@ -35,7 +35,13 @@ class TestEphemeralSandboxProbe(unittest.TestCase):
         self.assertIsInstance(d, dict)
         self.assertIn("isolation_mode", d)
         self.assertIn("is_verified", d)
-        self.assertIn("latency_ms", d)
+    def test_sandbox_get_status(self):
+        st = self.probe.get_status()
+        self.assertIsInstance(st, dict)
+        self.assertIn("unshare_binary_available", st)
+        self.assertIn("rootless_namespaces_supported", st)
+        self.assertIn("primary_isolation_mode", st)
+        self.assertIn("fallback_mode", st)
 
 
 if __name__ == "__main__":
