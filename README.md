@@ -57,9 +57,6 @@ Most AI assistants are cloud-dependent wrappers that hallucinate shell commands,
 | **Memory** | Multi-GB model required | **<16 MB RAM** in deterministic mode |
 | **Hallucination Rate** | Unknown | **0.0%** — AST-verified deterministic pipeline |
 
-11. **Self-Correction & Compound Intent Chaining (`ops_assistant.nlp.intent_chain`, `ops_assistant.explainer.self_correction`)**:
-    - Automatic multi-step intent decomposition, fuzzy command matching, and runtime self-correction engine for complex compound queries.
-
 ---
 
 ## Core Architecture
@@ -261,7 +258,7 @@ Test coverage spans: agent core, ReAct loop, causality DAGs, safety guardrails, 
 
 ## Contributors
 
-Maintained by the core development team and contributors.
+Developed and maintained by the engineering team and open-source contributors.
 
 ---
 
