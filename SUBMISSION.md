@@ -166,7 +166,7 @@ graph TD
 - **Repository URI**: `https://github.com/Dev-angPatil/01_LinuxOpsAssistant.git`
 - **Collaborator Access**: Added `ssm-hackathon` as Collaborator with write/read access.
 - **License**: Apache License 2.0 (`LICENSE` file included in repository root).
-- **Build & Execution**: Complete test suite of 200 unit and integration tests runs via `pytest tests/ -v` with 100% pass rate (200 passed).
+- **Build & Execution**: Complete test suite of 326 unit and integration tests across 41 modules runs via `pytest tests/ -v` with 100% pass rate (326 passed).
 
 ---
 

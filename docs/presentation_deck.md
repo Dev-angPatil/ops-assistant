@@ -108,7 +108,7 @@
 | **Taxonomy Accuracy** | 88.5% (Hallucinations) | **100.0% (16/16 Passed)** | **+11.5% Grounded** |
 | **Token Cost / Query** | $0.003 / query | **$0.00 (Air-Gapped)** | **100% Free** |
 | **Offline Privacy** | 0% (Cloud Dependent) | **100% Air-Gapped** | **Complete Compliance** |
-| **Test Suite Coverage** | N/A | **200/200 Unit Tests Passed** | **Production Grade** |
+| **Test Suite Coverage** | N/A | **326/326 Unit & Integration Tests Passed** | **Production Grade** |
 | **Distro Portability** | Single Distro | **6 Distro Families (incl. BOSS)** | **Universal Linux Support** |
 
 ---
