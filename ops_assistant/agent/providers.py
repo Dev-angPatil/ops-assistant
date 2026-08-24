@@ -10,12 +10,37 @@ from typing import Dict, Any, List, Optional, Tuple, Union
 from ops_assistant.models import SafetyLevel
 
 
-def _parse_llm_json(raw: Optional[Union[str, Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
-    """Robustly extracts and parses JSON objects from raw LLM responses (markdown code blocks, regex outer braces, or plain text)."""
+def _enrich_command_metadata(cmd_data: Dict[str, Any], query: str = "") -> Dict[str, Any]:
+    """Ensures a parsed command dictionary has complete and accurate safety and rollback metadata."""
+    cmd = cmd_data.get("command", "").strip()
+    if not cmd:
+        return cmd_data
+
+    # Deterministically calculate safety & risk if missing or unclassified
+    try:
+        from ops_assistant.tools.safety import CommandSafetyValidator
+        validator = CommandSafetyValidator()
+        lvl, risk, reason = validator.evaluate_safety(cmd)
+        if "safety_level" not in cmd_data or not cmd_data["safety_level"]:
+            cmd_data["safety_level"] = lvl.value
+        if "risk_score" not in cmd_data or cmd_data["risk_score"] is None:
+            cmd_data["risk_score"] = risk
+    except Exception:
+        cmd_data.setdefault("safety_level", "MODIFYING")
+        cmd_data.setdefault("risk_score", 0.35)
+
+    if not cmd_data.get("summary"):
+        cmd_data["summary"] = f"Execute `{cmd}`"
+
+    return cmd_data
+
+
+def _parse_llm_json(raw: Optional[Union[str, Dict[str, Any]]], query: str = "") -> Optional[Dict[str, Any]]:
+    """Robustly extracts and parses JSON objects, markdown code blocks, or shell commands from raw LLM responses."""
     if raw is None:
         return None
     if isinstance(raw, dict):
-        return raw
+        return _enrich_command_metadata(raw, query)
     if not isinstance(raw, str):
         return None
 
@@ -27,19 +52,29 @@ def _parse_llm_json(raw: Optional[Union[str, Dict[str, Any]]]) -> Optional[Dict[
     try:
         data = json.loads(cleaned)
         if isinstance(data, dict):
-            return data
+            return _enrich_command_metadata(data, query)
     except Exception:
         pass
 
-    # 2. Extract from markdown code fence ```json ... ```
-    fence_m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+    # 2. Extract from markdown code fence ```json ... ``` or ```bash ... ``` or ```sh ... ```
+    fence_m = re.search(r"```(?:json|bash|sh|zsh)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
     if fence_m:
+        content = fence_m.group(1).strip()
         try:
-            data = json.loads(fence_m.group(1).strip())
+            data = json.loads(content)
             if isinstance(data, dict):
-                return data
+                return _enrich_command_metadata(data, query)
         except Exception:
             pass
+        # If code block is a raw shell command line
+        if content and not content.startswith("{") and "\n" not in content:
+            return _enrich_command_metadata({
+                "command": content,
+                "summary": f"Execute `{content}`",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.30,
+                "rollback_command": None
+            }, query)
 
     # 3. Match outer { ... }
     brace_m = re.search(r"\{[\s\S]*\}", cleaned)
@@ -47,22 +82,33 @@ def _parse_llm_json(raw: Optional[Union[str, Dict[str, Any]]]) -> Optional[Dict[
         try:
             data = json.loads(brace_m.group(0))
             if isinstance(data, dict):
-                return data
+                return _enrich_command_metadata(data, query)
         except Exception:
             pass
 
-    # 4. Fallback if model output was a raw shell command string without JSON formatting
-    stripped = cleaned.strip("`").strip()
-    if stripped and not stripped.startswith("{") and len(stripped.splitlines()) <= 3:
-        tokens = stripped.split()
-        if tokens and not any(tokens[0].lower().startswith(w) for w in ("here", "i ", "you ", "to ", "sure")):
-            return {
-                "command": stripped,
-                "summary": f"Execute `{stripped}`",
+    # 4. Fallback: extract command candidate from raw lines
+    lines = [l.strip() for l in cleaned.splitlines() if l.strip()]
+    for line in lines:
+        stripped_line = line.strip("`$#").strip()
+        tokens = stripped_line.split()
+        if not tokens:
+            continue
+        first = tokens[0].lower()
+        if first in ("here", "i", "you", "to", "sure", "the", "this", "note:", "explanation:"):
+            continue
+        if any(sym in stripped_line for sym in ("|", "&&", ";", ">", ">>")) or first in (
+            "sudo", "apt", "dnf", "pacman", "apk", "systemctl", "service", "ls", "cat",
+            "grep", "find", "ps", "kill", "mkdir", "rm", "cp", "mv", "touch", "tar",
+            "unzip", "curl", "wget", "git", "journalctl", "dmesg", "df", "du", "free",
+            "uptime", "ip", "ss", "netstat", "chmod", "chown", "pkill", "echo"
+        ) or len(tokens) >= 1:
+            return _enrich_command_metadata({
+                "command": stripped_line,
+                "summary": f"Execute `{stripped_line}`",
                 "safety_level": "MODIFYING",
                 "risk_score": 0.30,
                 "rollback_command": None
-            }
+            }, query)
 
     return None
 
@@ -200,18 +246,16 @@ class GeminiProvider(LLMProvider):
             "You are an expert Linux System Administrator AI. Translate the user's natural language request into the single most appropriate Linux command.\n"
             f"User Request: {query}\n"
             f"Current Directory: {wd}\n"
-            f"User Home: {os.path.expanduser('~')}\n"
-            "Respond strictly in valid JSON format with keys:\n"
+            f"User Home: {os.path.expanduser('~')}\n\n"
+            "Respond in JSON format:\n"
             "{\n"
             '  "command": "<exact shell command>",\n'
-            '  "summary": "<plain English explanation of what the command does>",\n'
-            '  "safety_level": "<READ_ONLY|MODIFYING|HIGH_RISK|DESTRUCTIVE>",\n'
-            '  "risk_score": <0.05 to 1.0>,\n'
-            '  "rollback_command": "<undo command or null>"\n'
-            "}"
+            '  "summary": "<plain English explanation of what the command does>"\n'
+            "}\n"
+            "Or respond directly with the shell command in a ```bash code block."
         )
-        res = self._call_gemini_api(prompt, response_json=True)
-        return _parse_llm_json(res)
+        res = self._call_gemini_api(prompt, response_json=False)
+        return _parse_llm_json(res, query=query)
 
 
 class OllamaProvider(LLMProvider):
@@ -267,7 +311,7 @@ class OllamaProvider(LLMProvider):
             "Respond strictly in JSON format with keys: symptom, root_cause, rationale, proposed_commands (list of [cmd, safety, risk, rationale]), confidence."
         )
         raw = self.generate_raw(prompt)
-        return _parse_llm_json(raw)
+        return _parse_llm_json(raw, query=query)
 
     def generate_command(self, query: str, cwd: Optional[str] = None) -> Optional[Dict[str, Any]]:
         wd = cwd or os.getcwd()
@@ -276,18 +320,11 @@ class OllamaProvider(LLMProvider):
             "You are an expert Linux System Administrator AI. Translate the user natural language request into a single Linux shell command.\n"
             f"User Request: {query}\n"
             f"Current Directory: {wd}\n"
-            f"User Home: {user_home}\n"
-            "Respond strictly in valid JSON format with keys:\n"
-            "{\n"
-            '  "command": "<exact shell command>",\n'
-            '  "summary": "<plain English explanation>",\n'
-            '  "safety_level": "<READ_ONLY|MODIFYING|HIGH_RISK|DESTRUCTIVE>",\n'
-            '  "risk_score": <float from 0.05 to 1.0>,\n'
-            '  "rollback_command": "<undo command or null>"\n'
-            "}"
+            f"User Home: {user_home}\n\n"
+            "Respond with a JSON object containing 'command' and 'summary', or output the command in a ```bash code block."
         )
         raw = self.generate_raw(prompt)
-        return _parse_llm_json(raw)
+        return _parse_llm_json(raw, query=query)
 
 
 class LlamaCppProvider(LLMProvider):
@@ -371,22 +408,17 @@ class LlamaCppProvider(LLMProvider):
             "You are an expert Linux System Administrator AI & Command Copilot. Translate the user request into a single exact Linux shell command.\n"
             f"Current Directory: {wd}\n"
             f"User Home: {user_home}\n"
-            "Respond strictly in valid JSON format with keys:\n"
-            "{\n"
-            '  "command": "<exact single shell command>",\n'
-            '  "summary": "<plain English explanation>",\n'
-            '  "safety_level": "<READ_ONLY|MODIFYING|HIGH_RISK|DESTRUCTIVE>",\n'
-            '  "risk_score": <float from 0.05 to 1.0>,\n'
-            '  "rollback_command": "<undo command or null>"\n'
-            "}\n"
             "<|im_end|>\n"
             "<|im_start|>user\n"
             f"{query}\n"
             "<|im_end|>\n"
             "<|im_start|>assistant\n"
+            "```bash\n"
         )
         raw = self.generate_raw(prompt, max_tokens=256)
-        return _parse_llm_json(raw)
+        if raw and not raw.startswith("```"):
+            raw = f"```bash\n{raw}\n```"
+        return _parse_llm_json(raw, query=query)
 
     def synthesize_diagnosis(self, query: str, context: Dict[str, Any], observations: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         distro_guide = (context.get("distro_prompt_context") or "").strip()

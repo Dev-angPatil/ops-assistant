@@ -2855,7 +2855,7 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
             # Shell passthrough
             # -----------------------------------------------------------------
             elif intent.type == IntentType.SHELL_RUN:
-                cmd = intent.args.get("cmd", "")
+                cmd = intent.args.get("command") or intent.args.get("cmd") or query
                 if cmd:
                     _run_shell_passthrough(cmd)
                 else:
@@ -3170,9 +3170,8 @@ def main():
         else:
             render_action_proposal(action_res, executor, auto_yes=args.yes, distro_name=d_info.distro_name)
     elif args.query:
-        action_res = agent.execute_agent_action(args.query, execute=False, distro_override=args.distro)
         d_info = agent.distro_detector.detect(override_family=args.distro)
-        if action_res.get("diagnostic_report"):
+        if args.export_json or args.export_md:
             rep = agent.diagnose(args.query, distro_override=args.distro)
             render_diagnostic_report(rep, executor, interactive_exec=args.interactive)
             if args.export_json:
@@ -3180,7 +3179,12 @@ def main():
             if args.export_md:
                 export_report(rep, args.export_md, fmt="md")
         else:
-            render_action_proposal(action_res, executor, auto_yes=args.yes, distro_name=d_info.distro_name)
+            action_res = agent.execute_agent_action(args.query, execute=False, distro_override=args.distro)
+            if action_res.get("diagnostic_report"):
+                rep = agent.diagnose(args.query, distro_override=args.distro)
+                render_diagnostic_report(rep, executor, interactive_exec=args.interactive)
+            else:
+                render_action_proposal(action_res, executor, auto_yes=args.yes, distro_name=d_info.distro_name)
     else:
         run_repl(agent, executor, distro_override=args.distro)
 

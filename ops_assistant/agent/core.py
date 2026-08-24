@@ -1871,6 +1871,49 @@ class ReActAgent:
                 result["output"] = system_ops.get_logged_in_users()
             return _finalize_outcome(result)
 
+        elif intent.type in (IntentType.SHELL_RUN, IntentType.GENERIC_COMMAND):
+            cmd = args.get("command") or args.get("cmd") or args.get("raw_query") or query
+            if cmd:
+                safety_res = self.safety_validator.evaluate_safety(cmd)
+                s_level = safety_res[0].value
+                r_score = float(safety_res[1])
+                summary = args.get("summary") or f"Execute `{cmd}`"
+                rollback_cmd = args.get("rollback_command")
+                explanation_p = generate_natural_explanation(resolved_query, cmd, 0, "", "")
+
+                result["command"] = cmd
+                result["command_description"] = summary
+                result["summary"] = summary
+                result["explanation_paragraph"] = explanation_p
+                result["safety_level"] = s_level
+                result["risk_score"] = r_score
+                result["rollback_command"] = rollback_cmd
+                result["planned_commands"] = [{
+                    "command": cmd,
+                    "description": summary,
+                    "safety_level": s_level,
+                    "risk_score": r_score
+                }]
+                result["intent"] = intent.type.value
+                result["requires_permission"] = s_level in ("HIGH_RISK", "DESTRUCTIVE")
+
+                if execute:
+                    executor = SafeExecutor()
+                    result["output"] = executor.execute_with_reflection(
+                        cmd,
+                        rollback_cmd=rollback_cmd,
+                        llm_provider=self.llm_provider
+                    )
+                    result["executed"] = True
+                if hasattr(self, "context_manager") and self.context_manager is not None:
+                    self.context_manager.update_context(
+                        query=query,
+                        intent=intent.type.value,
+                        command=cmd,
+                        output_summary=summary
+                    )
+                return _finalize_outcome(result)
+
         # Intelligent LLM Synthesis Fallback for Open-Ended Natural Language Commands
         if self.llm_provider and hasattr(self.llm_provider, "generate_command"):
             try:
