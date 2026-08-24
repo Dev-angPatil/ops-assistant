@@ -190,6 +190,8 @@ class Intent:
     raw: str = ""
     confidence: float = 1.0
     ambiguous: bool = False
+    corrected_query: Optional[str] = None
+    corrections: List[Tuple[str, str]] = field(default_factory=list)
 
     def __repr__(self) -> str:
         return f"Intent({self.type.value}, args={self.args}, conf={self.confidence:.2f})"
@@ -533,7 +535,7 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     # -----------------------------------------------------------------------
     (IntentType.SYSTEM_INFO, [
         (r"\b(system info|sysinfo|uname|what (distro|os|linux) am i)\b", None),
-        (r"\bshow (me |the )?(system|os|kernel) (info|information|version)\b", None),
+        (r"\b(?:show|get|view|print|display)\s+(?:me\s+|the\s+)?(?:system|os|kernel)\s+(?:info|information|version)\b", None),
         (r"\bwhat (version|kernel|distro)\b", None),
     ]),
 
@@ -811,6 +813,7 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     ]),
 
     (IntentType.STORAGE_ANALYSE, [
+        (r"\b(?:analyze|analyse|check|show|get|view|inspect)\s+(?:my\s+)?(?:disk|storage|filesystem|drive)(?:\s+usage|\s+space|\s+status|\s+capacity)?\b", None),
         (r"\b(disk usage|disk space|storage usage|how much (disk |space |storage )?am i using)\b", None),
         (r"^(df|du)\b", None),          # only match df/du at start-of-input
         (r"\bwhat(\'s| is) using (my |the )?(disk|space|storage)\b", None),  # 'using' only — not 'eating'
@@ -1026,7 +1029,7 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     # Cron
     # -----------------------------------------------------------------------
     (IntentType.CRON_LIST, [
-        (r"\b(show|list|view|get) (my |all |)(cron(tab)?|scheduled|cron jobs?|tasks?)\b", None),
+        (r"\b(?:show|list|view|get)\s+(?:my\s+|all\s+)?(?:schedule|scheduled\s+)?(?:cron(?:tab)?|cron jobs?|tasks?|scheduled|schedule)\b", None),
         (r"\bcrontab\b", None),
         (r"\bscheduled (tasks?|jobs?)\b", None),
     ]),
@@ -1265,6 +1268,12 @@ class IntentRouter:
         """Alias for classify()."""
         return self.classify(text, remediation_context=remediation_context)
 
+    def route_compound(self, text: str):
+        """Routes text and returns a CompoundIntent if text is a multi-step query, else Intent."""
+        from ops_assistant.nlp.intent_chain import IntentChainEngine
+        engine = IntentChainEngine(router=self)
+        return engine.process(text)
+
     def classify(self, text: str, remediation_context: bool = False) -> Intent:
         """
         Classify *text* and return the best-matching Intent.
@@ -1295,10 +1304,29 @@ class IntentRouter:
                     confidence=1.0,
                 )
 
+        # Stage 0.5: Fuzzy Entity Matching & Spell Correction pass
+        corrected_q: Optional[str] = None
+        replacements: List[Tuple[str, str]] = []
+        try:
+            from ops_assistant.nlp.fuzzy_matcher import FuzzyEntityMatcher
+            corr_res = FuzzyEntityMatcher.get_instance().correct_query(clean_text)
+            if corr_res.replacements:
+                clean_text = corr_res.corrected_query
+                corrected_q = corr_res.corrected_query
+                replacements = corr_res.replacements
+        except Exception:
+            pass
+
+        def _attach(it: Intent) -> Intent:
+            if corrected_q and replacements:
+                it.corrected_query = corrected_q
+                it.corrections = replacements
+            return it
+
         # Stage 1: deterministic regex pass
         intent = self._regex_classify(clean_text)
         if intent.type != IntentType.UNKNOWN and intent.confidence >= 0.7:
-            return intent
+            return _attach(intent)
 
         # Stage 1.5: Natural Language Compiler semantic pass
         try:
@@ -1306,12 +1334,12 @@ class IntentRouter:
             nl_compiled = NaturalLanguageCompiler.compile(clean_text)
             if nl_compiled:
                 target_intent_type = IntentType(nl_compiled.get("intent", "generic_command"))
-                return Intent(
+                return _attach(Intent(
                     target_intent_type,
                     args=nl_compiled,
                     raw=text,
                     confidence=0.98
-                )
+                ))
         except Exception:
             pass
 
@@ -1319,30 +1347,30 @@ class IntentRouter:
         if self._llm is not None:
             llm_intent = self._llm_classify(text)
             if llm_intent is not None:
-                return llm_intent
+                return _attach(llm_intent)
 
         # Stage 3: Diagnostic query heuristic pass
         if self._looks_diagnostic(clean_text):
-            return Intent(IntentType.DIAGNOSE, raw=text, confidence=0.85)
+            return _attach(Intent(IntentType.DIAGNOSE, raw=text, confidence=0.85))
 
         # Stage 4: Check if clean_text is a direct shell command
         tokens = clean_text.split()
         first_word = tokens[0].lower() if tokens else ""
         if first_word in _COMMON_SHELL_BINARIES or (first_word == "sudo" and len(tokens) > 1 and tokens[1].lower() in _COMMON_SHELL_BINARIES) or any(sym in clean_text for sym in ("|", "&&", ";", ">", ">>")):
-            return Intent(
+            return _attach(Intent(
                 IntentType.SHELL_RUN,
                 args={"command": clean_text},
                 raw=text,
                 confidence=0.95
-            )
+            ))
 
         # Stage 5: Synthesize as general natural language Linux command
-        return Intent(
+        return _attach(Intent(
             IntentType.GENERIC_COMMAND,
             args={"command": clean_text, "raw_query": text},
             raw=text,
             confidence=0.85
-        )
+        ))
 
     def classify_remediation_action(self, text: str, n_commands: int) -> Intent:
         """

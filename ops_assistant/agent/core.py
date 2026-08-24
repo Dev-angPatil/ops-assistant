@@ -270,6 +270,10 @@ class ReActAgent:
         from ops_assistant.nlp.context_manager import ContextManager
         self.context_manager = ContextManager()
 
+        from ops_assistant.explainer.self_correction import SelfCorrectionEngine
+        self.self_correction_engine = SelfCorrectionEngine()
+
+
         if isinstance(llm_provider, str):
             prov_str = llm_provider.lower().strip()
             if prov_str in ["gemini", "google"]:
@@ -928,11 +932,52 @@ class ReActAgent:
             router = IntentRouter(llm_provider=self.llm_provider)
             self._router = router
 
+        compound_res = router.route_compound(resolved_query)
+        if getattr(compound_res, "is_compound", False):
+            c_intent: Any = compound_res
+            c_dict = c_intent.to_dict()
+            res_dict = {
+                "query": query,
+                "intent": "compound_intent",
+                "is_compound": True,
+                "total_steps": len(c_intent.steps),
+                "command": c_intent.chained_command,
+                "command_description": c_intent.summary,
+                "summary": c_intent.summary,
+                "explanation_steps": c_intent.explanation_steps,
+                "safety_level": c_intent.overall_safety_level,
+                "risk_score": c_intent.overall_risk_score,
+                "rollback_command": c_intent.chained_rollback,
+                "planned_commands": [
+                    {
+                        "command": s.command,
+                        "description": s.description or s.explanation or s.command,
+                        "safety_level": s.safety_level,
+                        "risk_score": s.risk_score
+                    }
+                    for s in c_intent.steps
+                ],
+                "requires_permission": c_intent.overall_safety_level in ("HIGH_RISK", "DESTRUCTIVE"),
+                "executed": False,
+                "output": None,
+                "timestamp": time.time()
+            }
+            if execute and c_intent.chained_command:
+                executor = SafeExecutor()
+                res_dict["output"] = executor.execute_with_reflection(
+                    c_intent.chained_command,
+                    rollback_cmd=c_intent.chained_rollback,
+                    llm_provider=self.llm_provider
+                )
+                res_dict["executed"] = True
+            return _finalize_outcome(res_dict)
+
         intent = router.classify(resolved_query)
         args = intent.args or {}
 
-        is_diag = (intent.type == IntentType.DIAGNOSE) or router._looks_diagnostic(resolved_query)
-        compiled = None if is_diag else NaturalLanguageCompiler.compile(resolved_query)
+        effective_query = intent.corrected_query or resolved_query
+        is_diag = (intent.type == IntentType.DIAGNOSE) or router._looks_diagnostic(effective_query)
+        compiled = None if is_diag else NaturalLanguageCompiler.compile(effective_query)
         
         # Determine if this intent should be handled directly by compiled shell pipeline
         STRUCTURED_BUILTIN_INTENTS = {
@@ -952,6 +997,7 @@ class ReActAgent:
 
         should_use_compiled = (
             compiled is not None and bool(compiled.get("command"))
+            and compiled.get("intent") != "generic_command"
             and (
                 intent.type not in STRUCTURED_BUILTIN_INTENTS
                 or compiled.get("intent") in (
@@ -1857,7 +1903,11 @@ class ReActAgent:
 
                         if execute:
                             executor = SafeExecutor()
-                            result["output"] = executor.execute(raw_cmd, rollback_cmd=rollback_cmd)
+                            result["output"] = executor.execute_with_reflection(
+                                raw_cmd,
+                                rollback_cmd=rollback_cmd,
+                                llm_provider=self.llm_provider
+                            )
                             result["executed"] = True
                         if hasattr(self, "context_manager") and self.context_manager is not None:
                             self.context_manager.update_context(

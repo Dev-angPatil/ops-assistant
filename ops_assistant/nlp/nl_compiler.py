@@ -538,7 +538,7 @@ class NaturalLanguageCompiler:
                         "command": cmd,
                         "url": "https://google.com" if "http" in cmd else "",
                         "description": f"Launches desktop application: '{app_key}'.",
-                        "intent": "desktop_open_browser" if "http" in cmd else "generic_command",
+                        "intent": "desktop_open_browser",
                         "safety_level": "READ_ONLY",
                         "risk_score": 0.05,
                         "explanation": f"I will launch '{app_key}'.",
