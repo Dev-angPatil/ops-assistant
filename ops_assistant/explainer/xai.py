@@ -435,6 +435,22 @@ class ErrorExplainer:
             diagnosis = "The target file or parent directory path does not exist on the filesystem."
             recommendation = "Check the path spelling, create parent directories using 'mkdir -p', or verify file existence with 'ls -la'."
 
+        elif any(k in combined_lower for k in [
+            "could not get lock", "lock-frontend", "db.lck", "could not lock database",
+            "unable to lock database", "failed to init transaction (unable to lock database)",
+            "is another instance running"
+        ]):
+            err_class = "LOCK_CONFLICT"
+            if "pacman" in combined_lower or "db.lck" in combined_lower:
+                diagnosis = "Arch Linux pacman database lock is held (/var/lib/pacman/db.lck) by an active or crashed transaction."
+                recommendation = "Check for running processes with 'ps aux | grep pacman', or remove the stale lock with 'sudo rm /var/lib/pacman/db.lck' if safe."
+            elif "dpkg" in combined_lower or "apt" in combined_lower:
+                diagnosis = "Debian/Ubuntu package manager database lock is held by unattended-upgrades or another apt session."
+                recommendation = "Wait for background updates or check with 'sudo fuser /var/lib/dpkg/lock-frontend'."
+            else:
+                diagnosis = "Package manager database lock is currently held by another background update process or daemon."
+                recommendation = "Wait for the active update process to complete, or inspect running package managers via 'ps aux | grep -E \"apt|dpkg|pacman|dnf\"'."
+
         elif "file exists" in combined_lower:
             err_class = "FILE_ALREADY_EXISTS"
             diagnosis = "A file or directory already exists at the destination path."
@@ -461,11 +477,6 @@ class ErrorExplainer:
             diagnosis = "The storage disk partition or inode table is 100% full."
             recommendation = "Run 'df -h' and 'df -i' to inspect capacity, and run 'clean space' to purge temporary files and reclaim disk capacity."
 
-        elif "could not get lock" in combined_lower or "lock-frontend" in combined_lower or "db.lck" in combined_lower:
-            err_class = "LOCK_CONFLICT"
-            diagnosis = "Package manager database lock is currently held by another background update process or daemon."
-            recommendation = "Wait for the active update process to complete, or inspect running package managers via 'ps aux | grep -E \"apt|dpkg|pacman|dnf\"'."
-
         elif returncode == 137 or "oom-killer" in combined_lower or "out of memory" in combined_lower:
             err_class = "OOM_KILL"
             diagnosis = "The process was abruptly terminated by the Linux kernel Out-Of-Memory (OOM) Killer."
@@ -476,10 +487,18 @@ class ErrorExplainer:
             diagnosis = "The command exceeded the maximum allocated execution time limit before completing."
             recommendation = "Check network connectivity, reduce the data payload, or run the command in background mode."
 
-        elif "connection refused" in combined_lower or "network is unreachable" in combined_lower or "temporary failure in name resolution" in combined_lower:
+        elif any(k in combined_lower for k in [
+            "connection refused", "network is unreachable", "temporary failure in name resolution",
+            "fatal: unable to access", "openssl ssl_read", "unexpected eof", "error fetching",
+            "ssl routines", "gnutls", "curl: (35)", "curl: (7)", "could not resolve host"
+        ]):
             err_class = "NETWORK_ERROR"
-            diagnosis = "Failed to establish a network connection (remote endpoint down, firewall blocking, or DNS resolution failure)."
-            recommendation = "Verify internet access, test DNS with 'ping -c 1 8.8.8.8', or check firewall status with 'sudo ufw status'."
+            if "aur.archlinux.org" in combined_lower or "webkit2gtk" in combined_lower:
+                diagnosis = "Network/SSL connection to AUR repository was abruptly interrupted while cloning heavy dependencies."
+                recommendation = "Retry the install, or use the pre-compiled Flatpak version instead: 'flatpak install -y flathub com.github.eneshecan.WhatsAppForLinux'."
+            else:
+                diagnosis = "Failed to establish or maintain a network connection (remote endpoint dropped, SSL error, or DNS failure)."
+                recommendation = "Verify internet access, test DNS with 'ping -c 1 8.8.8.8', or retry the command."
 
         elif "invalid option" in combined_lower or "unknown option" in combined_lower or "syntax error" in combined_lower or returncode == 2:
             err_class = "SYNTAX_ERROR"
@@ -551,10 +570,14 @@ class ExecutionOutcomeExplainer:
                 changes_made.append(f"Created/modified file `{target_file}` (resolved to `{exp_file}`)")
                 changes_summary = f"Wrote file '{target_file}' with specified content and permissions."
 
-            elif "rm " in cmd or "rmdir" in cmd or base_cmd in ("rm", "rmdir"):
-                rm_args = [t for t in tokens if not t.startswith("-") and t not in ("sudo", "rm", "rmdir")]
-                target_rm = ", ".join(f"`{a}`" for a in rm_args) if rm_args else "`target path`"
-                target_plain = ", ".join(rm_args) if rm_args else "target path"
+            elif "vacuum" in cmd or "clean" in cmd or "prune" in cmd:
+                changes_made.append("Cleaned ephemeral cache, vacuumed journal logs, and reclaimed disk storage")
+                changes_summary = "Reclaimed disk storage by purging temporary and cache files."
+
+            elif re.search(r"\b(?:rm|rmdir)\b", cmd):
+                m_rm = re.search(r"\b(?:rm|rmdir)\s+(?:-[a-zA-Z]+\s+)*['\"]?([^'\"\s;&|]+)['\"]?", cmd)
+                target_rm = f"`{m_rm.group(1)}`" if m_rm else "`target path`"
+                target_plain = m_rm.group(1) if m_rm else "target path"
                 changes_made.append(f"Deleted {target_rm} from storage")
                 changes_summary = f"Deleted '{target_plain}' from the filesystem."
 
@@ -712,6 +735,17 @@ class ExecutionOutcomeExplainer:
                 pass
 
 
+        # 5. Terminal Fallback Data Synthesis
+        from ops_assistant.tools.terminal_fallback import TerminalFallbackDetector
+        fallback_data = TerminalFallbackDetector.build_fallback_payload(
+            command_or_commands=cmd,
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
+            blocked=False,
+            cwd=context.get("cwd") if isinstance(context, dict) else None
+        )
+
         return {
             "query": query_str,
             "command": cmd,
@@ -723,8 +757,10 @@ class ExecutionOutcomeExplainer:
             "ai_elaboration": ai_elaboration,
             "changes_made": changes_made,
             "changes_summary": changes_summary,
-            "failure_analysis": failure_analysis
+            "failure_analysis": failure_analysis,
+            "terminal_fallback": fallback_data.to_dict()
         }
+
 
 
 

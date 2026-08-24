@@ -43,7 +43,96 @@ from ops_assistant.explainer.xai import ExecutionOutcomeExplainer, CommandExplai
 
 # NLP intent routing + action tool modules
 from ops_assistant.nlp.intent_router import IntentRouter, Intent, IntentType
+from ops_assistant.nlp.autocomplete import AutocompleteEngine, Suggestion, get_autocomplete_engine
 from ops_assistant.tools import storage_ops, process_ops, network_ops, log_ops
+
+# Try importing prompt_toolkit for real-time rich interactive CLI autocomplete
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit.styles import Style as PTStyle
+    from prompt_toolkit.formatted_text import HTML as PTHTML
+    from prompt_toolkit.key_binding import KeyBindings as PTKeyBindings
+    HAS_PROMPT_TOOLKIT = True
+except ImportError:
+    HAS_PROMPT_TOOLKIT = False
+
+
+class CLIAutocompleteCompleter(Completer if HAS_PROMPT_TOOLKIT else object):
+    """Real-time contextual prompt_toolkit completer for natural language requests."""
+
+    def __init__(self, engine: Optional[AutocompleteEngine] = None, cwd: Optional[str] = None):
+        self.engine = engine or get_autocomplete_engine()
+        self.cwd = cwd or os.getcwd()
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.strip():
+            return
+
+        suggestions = self.engine.suggest(query=text, cwd=self.cwd, max_results=8)
+        start_pos = -len(text)
+
+        for s in suggestions:
+            cat_tag = s.category.replace("_", " ").title()
+            meta = f"[{cat_tag}] {s.description}"
+            if s.command_preview:
+                meta += f" • {s.command_preview}"
+            yield Completion(
+                text=s.text,
+                start_position=start_pos,
+                display=s.text,
+                display_meta=meta
+            )
+
+
+if HAS_PROMPT_TOOLKIT:
+    CLI_PT_STYLE = PTStyle.from_dict({
+        'prompt': '#00d2ff bold',
+        'completion-menu.completion': 'bg:#1e293b #e2e8f0',
+        'completion-menu.completion.current': 'bg:#0284c7 #ffffff bold',
+        'completion-menu.meta.completion': 'bg:#0f172a #94a3b8 italic',
+        'completion-menu.meta.completion.current': 'bg:#0369a1 #f8fafc',
+        'scrollbar.background': 'bg:#0f172a',
+        'scrollbar.button': 'bg:#38bdf8',
+    })
+
+    CLI_PT_KB = PTKeyBindings()
+
+    @CLI_PT_KB.add('tab')
+    def _pt_tab(event):
+        buff = event.current_buffer
+        if buff.complete_state:
+            if buff.complete_state.current_completion:
+                buff.apply_completion(buff.complete_state.current_completion)
+                buff.complete_state = None
+            else:
+                buff.complete_next()
+                if buff.complete_state and buff.complete_state.current_completion:
+                    buff.apply_completion(buff.complete_state.current_completion)
+                    buff.complete_state = None
+        elif buff.text.strip():
+            engine = get_autocomplete_engine()
+            suggs = engine.suggest(buff.text, max_results=1)
+            if suggs:
+                buff.text = suggs[0].text
+                buff.cursor_position = len(buff.text)
+
+    @CLI_PT_KB.add('right')
+    def _pt_right_arrow(event):
+        buff = event.current_buffer
+        if buff.complete_state and buff.complete_state.current_completion:
+            buff.apply_completion(buff.complete_state.current_completion)
+            buff.complete_state = None
+        elif buff.cursor_position == len(buff.text) and buff.text.strip():
+            engine = get_autocomplete_engine()
+            suggs = engine.suggest(buff.text, max_results=1)
+            if suggs:
+                buff.text = suggs[0].text
+                buff.cursor_position = len(buff.text)
+        else:
+            buff.cursor_right()
+
 
 
 # -------------------------------------------------------------------------
@@ -1564,17 +1653,22 @@ def render_action_proposal(
     from ops_assistant.explainer.xai import CommandExplainer
     xai_info = CommandExplainer.explain(cmd) if cmd else {}
 
+    inst_plan = action_res.get("install_plan")
+
     if HAS_RICH and console:
+        title = "[bold magenta]📦 AI-Powered Software & Dependency Installer[/bold magenta]" if inst_plan else "[bold green]Command Proposal[/bold green]"
         header_text = (
             f"[bold cyan]🎯 Natural Language → Linux Command Copilot[/bold cyan] [dim]({distro_name})[/dim]\n\n"
             f"[bold white]Query:[/bold white] [italic yellow]{action_res.get('query')}[/italic yellow]\n"
             f"[bold white]Description:[/bold white] {desc}\n"
             f"[bold white]Safety Tier:[/bold white] {format_safety_badge(safety_lvl)} [dim](Risk Score: {risk:.2f})[/dim]"
         )
+        if inst_plan:
+            header_text += f"\n[bold white]Install Source:[/bold white] [bold green]{inst_plan.get('source_label', '')}[/bold green]"
         if rollback:
             header_text += f"\n[bold white]Rollback Plan:[/bold white] [cyan]{rollback}[/cyan]"
 
-        console.print(Panel(header_text, title="[bold green]Command Proposal[/bold green]", border_style="green"))
+        console.print(Panel(header_text, title=title, border_style="magenta" if inst_plan else "green"))
 
         console.print(Panel(
             f"[bold yellow]$ {cmd}[/bold yellow]",
@@ -1592,11 +1686,14 @@ def render_action_proposal(
             console.print(flag_table)
     else:
         print("\n" + "=" * 68)
-        print(f"🎯 PROPOSED COMMAND ({distro_name})")
+        header_tag = "📦 AI INSTALLER" if inst_plan else "🎯 PROPOSED COMMAND"
+        print(f"{header_tag} ({distro_name})")
         print("=" * 68)
         print(f"Query:       {action_res.get('query')}")
         print(f"Command:     $ {cmd}")
         print(f"Description: {desc}")
+        if inst_plan:
+            print(f"Source:      {inst_plan.get('source_label', '')}")
         print(f"Safety:      [{safety_lvl.value}] Risk: {risk:.2f}")
         if rollback:
             print(f"Rollback:    {rollback}")
@@ -1649,11 +1746,49 @@ def render_action_proposal(
         else:
             print(res["stderr"])
 
+    # Interactive self-healing for lock conflicts (pacman db.lck or dpkg lock)
+    if rc != 0:
+        err_text = (res.get("stderr", "") + " " + res.get("stdout", "")).lower()
+        if "db.lck" in err_text or "could not lock database" in err_text:
+            if os.path.exists("/var/lib/pacman/db.lck"):
+                import subprocess as _sp
+                chk = _sp.run("pgrep -x pacman || pgrep -x yay", shell=True, capture_output=True, text=True)
+                if not chk.stdout.strip():
+                    try:
+                        fix_ans = input("\n💡 Stale pacman database lock detected (/var/lib/pacman/db.lck). Remove lock and retry? [Y/n]: ").strip().lower()
+                        if fix_ans in ("y", "yes", ""):
+                            if HAS_RICH and console:
+                                console.print("[bold cyan]▶ Removing stale lock:[/bold cyan] [yellow]sudo rm -f /var/lib/pacman/db.lck[/yellow]")
+                            else:
+                                print("▶ Removing stale lock: sudo rm -f /var/lib/pacman/db.lck")
+                            executor.execute("sudo rm -f /var/lib/pacman/db.lck")
+                            if HAS_RICH and console:
+                                console.print("[bold green]✓ Lock removed! Retrying command...[/bold green]")
+                                console.print(f"[bold cyan]▶ Executing:[/bold cyan] [yellow]{cmd}[/yellow]")
+                            else:
+                                print("✓ Lock removed! Retrying command...")
+                                print(f"▶ Executing: {cmd}")
+                            res = executor.execute(cmd, rollback_cmd=rollback)
+                            rc = res.get("returncode", -1)
+                            if res.get("stdout"):
+                                print(res["stdout"])
+                            if res.get("stderr") and rc != 0:
+                                if HAS_RICH and console:
+                                    console.print(f"[red]{res['stderr']}[/red]")
+                                else:
+                                    print(res["stderr"])
+                    except (KeyboardInterrupt, EOFError):
+                        pass
+
     if rc == 0:
         if HAS_RICH and console:
             console.print(f"[bold green]✓ Command completed successfully (exit code 0).[/bold green]")
+            if inst_plan and inst_plan.get("launch_instructions"):
+                console.print(Panel(f"[bold cyan]🚀 Launch & Usage Guidance:[/bold cyan]\n{inst_plan.get('launch_instructions')}", border_style="cyan"))
         else:
             print("✓ Command completed successfully (exit code 0).")
+            if inst_plan and inst_plan.get("launch_instructions"):
+                print(f"\n🚀 Ready! {inst_plan.get('launch_instructions')}")
     else:
         if HAS_RICH and console:
             console.print(f"[bold red]❌ Command exited with code {rc}.[/bold red]")
@@ -1845,10 +1980,40 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
             print(res["stderr"])
         render_execution_outcome(res, command=cmd, agent=agent)
 
+    # Initialize Real-Time Intelligent Autocomplete Session for CLI
+    autocomplete_engine = get_autocomplete_engine()
+    pt_session = None
+    if HAS_PROMPT_TOOLKIT and sys.stdin.isatty():
+        try:
+            completer = CLIAutocompleteCompleter(engine=autocomplete_engine, cwd=os.getcwd())
+            pt_session = PromptSession(
+                completer=completer,
+                style=CLI_PT_STYLE,
+                key_bindings=CLI_PT_KB,
+                complete_while_typing=True,
+            )
+        except Exception:
+            pt_session = None
+    elif sys.stdin.isatty():
+        try:
+            import readline
+            def _readline_completer(text, state):
+                suggs = autocomplete_engine.suggest(text, max_results=8)
+                options = [s.text for s in suggs]
+                if state < len(options):
+                    return options[state]
+                return None
+            readline.set_completer(_readline_completer)
+            readline.parse_and_bind("tab: complete")
+        except Exception:
+            pass
 
     while True:
         try:
-            query = input(f"\nops-assistant [{d_info.distro_name}]> ").strip()
+            if pt_session is not None:
+                query = pt_session.prompt(PTHTML(f"\n<ansicyan><b>ops-assistant</b></ansicyan> [<ansigreen>{d_info.distro_name}</ansigreen>]> ")).strip()
+            else:
+                query = input(f"\nops-assistant [{d_info.distro_name}]> ").strip()
             if not query:
                 continue
 

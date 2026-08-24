@@ -9,14 +9,18 @@ from ops_assistant.agent import OpsAssistantAgent
 
 
 def test_voice_gui_endpoints():
+    import threading
+    import time
     agent = OpsAssistantAgent()
-    server, url = start_gui_server(host="127.0.0.1", port=0, open_browser=False, agent=agent)
-    port = server.server_address[1]
+    server, url = start_gui_server(host="127.0.0.1", port=9933, open_browser=False, agent=agent)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    time.sleep(0.2)
 
     try:
         # 1. Test GET /api/voice/status
-        req_status = urllib.request.Request(f"http://127.0.0.1:{port}/api/voice/status")
-        with urllib.request.urlopen(req_status) as resp:
+        req_status = urllib.request.Request(f"{url}/api/voice/status", headers={"Connection": "close"})
+        with urllib.request.urlopen(req_status, timeout=5) as resp:
             assert resp.status == 200
             data = json.loads(resp.read().decode("utf-8"))
             assert data["success"] is True
@@ -25,11 +29,11 @@ def test_voice_gui_endpoints():
         # 2. Test POST /api/voice/transcribe (text normalization)
         payload = json.dumps({"text": "sudo apt get update", "language": "en-IN"}).encode("utf-8")
         req_stt = urllib.request.Request(
-            f"http://127.0.0.1:{port}/api/voice/transcribe",
+            f"{url}/api/voice/transcribe",
             data=payload,
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json", "Connection": "close"}
         )
-        with urllib.request.urlopen(req_stt) as resp:
+        with urllib.request.urlopen(req_stt, timeout=5) as resp:
             assert resp.status == 200
             data = json.loads(resp.read().decode("utf-8"))
             assert data["success"] is True

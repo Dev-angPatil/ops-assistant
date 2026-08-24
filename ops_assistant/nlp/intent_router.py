@@ -224,10 +224,12 @@ def _extract_service(m: re.Match) -> Dict[str, Any]:
 
 
 def _extract_package(m: re.Match) -> Dict[str, Any]:
-    pkg = _sanitize_token(m.group("pkg") or "")
-    if pkg.lower() in ("temporary", "temp", "downloads", "folder", "directory", "dir", "file", "files", "project", "cache", "trash", "logs"):
+    pkg = (m.group("pkg") or "").strip().strip("\"'")
+    if not pkg:
         return {}
-    return {"package": pkg} if pkg else {}
+    if pkg.lower() in ("temporary", "temp", "downloads", "folder", "directory", "dir", "cache", "trash", "logs"):
+        return {}
+    return {"package": pkg}
 
 
 def _extract_path(m: re.Match) -> Dict[str, Any]:
@@ -907,9 +909,12 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     # Packages
     # -----------------------------------------------------------------------
     (IntentType.PACKAGE_INSTALL, [
-        (r"\b(?:install|download|get|fetch|add|setup)\s+(?:the\s+)?(?:software\s+|package\s+|app\s+|application\s+|tool\s+)?(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
-        (r"\b(?:install|download|get|fetch|add)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
-        (r"\b(?:sudo\s+)?(?:apt|apt-get|yum|dnf|pacman|apk|zypper)\s+(?:install|add|-S)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
+        (r"\b(?:install\s+(?:this\s+)?project(?:'s)?\s+dependencies|install\s+requirements(?:\.txt)?|install\s+package\.json|setup\s+project|install\s+everything\s+(?:required|needed)\s+to\s+run\s+this\s+project|install\s+all\s+dependencies)\b", lambda m: {"package": "project_dependencies"}),
+        (r"\b(?:i\s+(?:have|need|want)\s+to\s+install|please\s+install|can\s+you\s+install)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+/\s]+?)(?:\s+on\s+my\s+system|\s+please|\s+now)?$", _extract_package),
+        (r"\b(?:i\s+need\s+(?:a\s+)?(?:library|package|tool)\s+(?:to|for)\s+)(?P<pkg>.+)", _extract_package),
+        (r"\b(?:install|download|get|fetch|add|setup)\s+(?:the\s+)?(?:software\s+|package\s+|app\s+|application\s+|tool\s+|library\s+|libraries\s+)?(?P<pkg>[a-zA-Z0-9_\-\.\+/\s]+?)(?:\s+package|\s+app|\s+library|\s+tool)?$", _extract_package),
+        (r"\b(?:install|setup)\s+(?P<pkg>[\w\-\.~/]+\.(?:deb|rpm|appimage|tar\.gz|tgz|tar\.xz|zip|sh))\b", _extract_package),
+        (r"\b(?:sudo\s+)?(?:apt|apt-get|yum|dnf|pacman|apk|zypper|yay|paru|flatpak|snap|pip|pip3|npm|pnpm|yarn|bun|cargo)\s+(?:install|add|-S)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+@/ ]+)\b", _extract_package),
     ]),
 
     (IntentType.PACKAGE_REMOVE, [
@@ -1255,6 +1260,10 @@ class IntentRouter:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def route(self, text: str, remediation_context: bool = False) -> Intent:
+        """Alias for classify()."""
+        return self.classify(text, remediation_context=remediation_context)
 
     def classify(self, text: str, remediation_context: bool = False) -> Intent:
         """

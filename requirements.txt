@@ -1,5 +1,6 @@
 rich>=13.0.0
 pytest>=7.0.0
+prompt_toolkit>=3.0.0
 
 # Optional in-process Edge GGUF LLM inference:
 # pip install llama-cpp-python

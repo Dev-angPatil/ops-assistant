@@ -63,22 +63,23 @@ class NaturalLanguageCompiler:
     }
 
     DESKTOP_APPS = {
-        "browser": ["xdg-open https://google.com"],
-        "web browser": ["xdg-open https://google.com"],
+        "browser": ["brave", "firefox", "google-chrome", "chromium", "xdg-open https://google.com"],
+        "web browser": ["brave", "firefox", "google-chrome", "chromium", "xdg-open https://google.com"],
         "chrome": ["google-chrome", "chromium", "xdg-open https://google.com"],
         "google chrome": ["google-chrome", "chromium", "xdg-open https://google.com"],
         "brave": ["brave", "brave-browser", "xdg-open https://google.com"],
         "brave browser": ["brave", "brave-browser", "xdg-open https://google.com"],
         "firefox": ["firefox", "xdg-open https://google.com"],
-        "terminal": ["x-terminal-emulator", "alacritty", "kitty", "gnome-terminal", "konsole", "xterm"],
-        "calculator": ["gnome-calculator", "kcalc", "galculator", "xcalc"],
-        "code": ["code .", "codium ."],
-        "vs code": ["code .", "codium ."],
-        "vscode": ["code .", "codium ."],
-        "file manager": ["xdg-open ~", "nautilus ~", "dolphin ~", "thunar ~"],
-        "files": ["xdg-open ~", "nautilus ~", "dolphin ~", "thunar ~"],
+        "terminal": ["kitty", "alacritty", "foot", "wezterm", "gnome-terminal", "konsole", "x-terminal-emulator", "xterm"],
+        "calculator": ["gnome-calculator", "kcalc", "galculator", "xcalc", "bc"],
+        "code": ["code .", "codium .", "cursor ."],
+        "vs code": ["code .", "codium .", "cursor ."],
+        "vscode": ["code .", "codium .", "cursor ."],
+        "file manager": ["xdg-open ~", "thunar ~", "nautilus ~", "dolphin ~", "pcmanfm ~"],
+        "files": ["xdg-open ~", "thunar ~", "nautilus ~", "dolphin ~", "pcmanfm ~"],
         "settings": ["gnome-control-center", "systemsettings", "xfce4-settings-manager"],
-        "text editor": ["gedit", "kate", "mousepad", "nano", "xed"],
+        "text editor": ["code .", "cursor .", "gedit", "kate", "mousepad", "xed", "nvim", "nano"],
+        "editor": ["code .", "cursor .", "gedit", "kate", "mousepad", "xed", "nvim", "nano"],
     }
 
     STANDARD_FOLDERS = {
@@ -525,7 +526,14 @@ class NaturalLanguageCompiler:
             # Check desktop applications
             for app_key, app_cmds in cls.DESKTOP_APPS.items():
                 if target == app_key or target == f"my {app_key}" or target == f"the {app_key}":
-                    cmd = app_cmds[0]
+                    cmd = None
+                    for candidate in app_cmds:
+                        base_bin = candidate.split()[0]
+                        if shutil.which(base_bin):
+                            cmd = candidate
+                            break
+                    if not cmd:
+                        cmd = app_cmds[0]
                     return {
                         "command": cmd,
                         "url": "https://google.com" if "http" in cmd else "",
@@ -940,7 +948,7 @@ class NaturalLanguageCompiler:
             }
 
         m_del = re.search(r"\b(?:delete|trash|remove)\s+(?:the\s+)?(?:file\s+|folder\s+|directory\s+)?(?P<target>[\w\.\-\/~]+)\b", clean, re.IGNORECASE)
-        if m_del and not any(kw in clean.lower() for kw in ("package", "app", "application", "service", "daemon", "logs", "cache", "temp", "temporary", "trash")):
+        if m_del and not any(kw in clean.lower() for kw in ("package", "app", "application", "service", "daemon", "logs", "cache", "temp", "temporary", "trash", "largest", "biggest")):
             tgt = m_del.group("target")
             return {
                 "command": f"gio trash '{tgt}' 2>/dev/null || rm -rf '{tgt}'",
@@ -1038,7 +1046,19 @@ class NaturalLanguageCompiler:
             }
 
         # 4. System Resource & Health Inquiries
-        # e.g. "check my CPU uses", "check ram", "how much memory is free"
+        # e.g. "my laptop is slow", "check my CPU uses", "check ram", "how much memory is free"
+        if re.search(r"\b(?:my\s+)?(?:laptop|pc|computer|system)\s+(?:is\s+)?(?:slow|laggy|lagging|freezing|stuck|sluggish)\b|\b(?:why\s+is\s+my\s+)?(?:laptop|pc|computer|system)\s+(?:so\s+)?(?:slow|laggy)\b", clean, re.IGNORECASE):
+            cmd = "ps aux --sort=-%cpu,-%mem | head -n 12"
+            return {
+                "command": cmd,
+                "description": "Identifies high CPU and memory resource processes causing system slowdown.",
+                "intent": "system_performance_audit",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will inspect high resource processes, CPU load, and memory bottlenecks.",
+                "explanation_paragraph": "The assistant compiled your performance query into `ps aux --sort=-%cpu,-%mem | head -n 12`, pinpointing the highest CPU and RAM consuming processes responsible for system slowdowns."
+            }
+
         if re.search(r"\b(?:check|show|get|view|inspect)\s+(?:my\s+)?(?:cpu|processor)(?:\s+(?:uses|usage|load|status|utilization))?\b", clean, re.IGNORECASE) or clean.lower() in ("cpu uses", "cpu usage", "check cpu"):
             cmd = "top -b -n 1 | head -n 15"
             return {

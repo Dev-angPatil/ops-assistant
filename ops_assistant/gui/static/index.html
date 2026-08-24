@@ -205,6 +205,15 @@
                   class="hidden absolute right-4 text-slate-400 hover:text-white p-1.5 rounded-full hover:bg-white/10 z-20 transition">
                   <i data-lucide="x" class="w-4.5 h-4.5"></i>
                 </button>
+
+                <!-- Intelligent Natural Language Auto-Complete Dropdown -->
+                <div 
+                  id="autocomplete-dropdown" 
+                  class="autocomplete-popover hidden absolute left-0 right-0 top-full mt-2 z-50 bg-[#0c1017]/95 backdrop-blur-2xl border border-cyan-500/25 rounded-2xl p-2 shadow-[0_20px_60px_rgba(0,0,0,0.85),0_0_25px_rgba(0,210,255,0.12)] max-h-80 overflow-y-auto space-y-1"
+                  role="listbox"
+                  aria-label="Natural Language Suggestions">
+                  <!-- Dynamically populated suggestions -->
+                </div>
               </div>
 
               <!-- TWO PROMINENT, LARGER BUTTONS: TEXT SUBMIT & VOICE COMMAND -->
@@ -752,36 +761,214 @@
     <!-- ======================================================== -->
     <!-- TAB 7: PACKAGE MANAGER -->
     <!-- ======================================================== -->
-    <div id="tab-content-packages" class="tab-content hidden space-y-10">
-      <div class="avant-card-elevated p-8 sm:p-10 space-y-6">
-        <div class="flex items-center justify-between">
-          <h3 class="font-editorial italic text-xl sm:text-2xl text-white flex items-center space-x-3">
-            <i data-lucide="package" class="w-6 h-6 text-slate-300 not-italic"></i>
-            <span>Multi-Distro Package &amp; Environment Nexus</span>
-          </h3>
-          <span class="text-xs font-mono px-4 py-1.5 rounded-full bg-white/10 text-white border border-white/20 font-bold" id="pkg-distro-badge">ARCH LINUX (PACMAN)</span>
+    <div id="tab-content-packages" class="tab-content hidden space-y-8">
+      
+      <!-- Top Title & Host Capabilities Banner -->
+      <div class="avant-card-elevated p-6 sm:p-8 space-y-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-5">
+          <div>
+            <h3 class="font-editorial italic text-2xl sm:text-3xl text-white flex items-center space-x-3">
+              <i data-lucide="package-plus" class="w-7 h-7 text-cyan-300 not-italic"></i>
+              <span>AI Software &amp; Dependency Installer</span>
+            </h3>
+            <p class="text-xs sm:text-sm text-slate-400 font-sans mt-1">
+              Natural language software provisioning, project dependency detection, and multi-source package installation.
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2" id="installer-capabilities-badges">
+            <span class="text-xs font-mono px-3.5 py-1.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/25 font-bold" id="pkg-distro-badge">ARCH LINUX (PACMAN)</span>
+            <span class="text-xs font-mono px-3 py-1.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/25 font-medium" id="pkg-aur-badge">AUR: YAY</span>
+            <span class="text-xs font-mono px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/25 font-medium" id="pkg-flatpak-badge">FLATPAK</span>
+          </div>
         </div>
 
-        <div class="flex space-x-4 pt-2">
-          <input 
-            type="text" 
-            id="pkg-search-input" 
-            placeholder="Search package (e.g. htop, nginx, curl, tree)..." 
-            class="editorial-input flex-1 px-5 py-3 text-sm font-mono"
-          />
-          <button 
-            type="button" 
-            onclick="searchPackage()" 
-            class="btn-editorial-primary px-6 py-3 text-sm">
-            <i data-lucide="search" class="w-4 h-4"></i>
-            <span>Query Repo</span>
-          </button>
-        </div>
+        <!-- 1. Natural Language Universal Search & Install -->
+        <div class="space-y-3">
+          <label class="block text-xs font-mono text-slate-300 uppercase tracking-wider">
+            Natural Language Installation Prompt
+          </label>
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <i data-lucide="sparkles" class="w-5 h-5 text-cyan-400 absolute left-4 top-1/2 -translate-y-1/2"></i>
+              <input 
+                type="text" 
+                id="installer-nl-input" 
+                placeholder="e.g. 'Install VS Code', 'Install WhatsApp', 'I need a library to handle Excel files', 'Install Docker'..." 
+                class="editorial-input w-full pl-12 pr-4 py-3.5 text-sm sm:text-base font-mono bg-black/60 border border-white/20 rounded-xl focus:border-cyan-400"
+                onkeydown="if(event.key==='Enter') resolveAndInstall()"
+              />
+            </div>
+            <button 
+              type="button" 
+              onclick="resolveAndInstall()" 
+              id="btn-installer-resolve"
+              class="btn-editorial-primary px-7 py-3.5 text-sm font-tech font-bold flex items-center justify-center space-x-2 shrink-0">
+              <i data-lucide="arrow-right-circle" class="w-4.5 h-4.5"></i>
+              <span>Plan &amp; Install ↗</span>
+            </button>
+          </div>
 
-        <div id="pkg-result-container" class="p-6 rounded-2xl bg-black/50 border border-white/10 text-sm font-mono text-white space-y-3">
-          <p class="text-slate-500">Enter a package name to search repository metadata.</p>
+          <!-- Quick Suggestion Pills -->
+          <div class="flex flex-wrap items-center gap-2 pt-2 text-xs font-mono">
+            <span class="text-slate-500 mr-1">Quick Select:</span>
+            <button onclick="setInstallerPrompt('Install WhatsApp')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white transition">💬 WhatsApp</button>
+            <button onclick="setInstallerPrompt('Install VS Code')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white transition">💻 VS Code</button>
+            <button onclick="setInstallerPrompt('Install Google Chrome')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white transition">🌐 Chrome</button>
+            <button onclick="setInstallerPrompt('Install Docker')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white transition">🐳 Docker</button>
+            <button onclick="setInstallerPrompt('I need a library to handle Excel files')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white transition">📊 Excel Lib</button>
+            <button onclick="setInstallerPrompt('Install this project\'s dependencies')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white transition">📦 Project Deps</button>
+            <button onclick="setInstallerPrompt('Install Java 21')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white transition">☕ Java 21</button>
+            <button onclick="setInstallerPrompt('Install MySQL')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white transition">🗄️ MySQL</button>
+          </div>
         </div>
       </div>
+
+      <!-- 2. Project Dependencies Auto-Detector Card -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <!-- Left: Project Dependencies Auto-Detector -->
+        <div class="avant-card-elevated p-6 space-y-4">
+          <div class="flex items-center justify-between">
+            <h4 class="font-editorial italic text-lg sm:text-xl text-white flex items-center space-x-2.5">
+              <i data-lucide="layers" class="w-5 h-5 text-emerald-400 not-italic"></i>
+              <span>Active Project Dependencies</span>
+            </h4>
+            <button onclick="scanProjectDependencies()" class="text-xs font-mono text-cyan-400 hover:text-cyan-300 flex items-center space-x-1">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Rescan</span>
+            </button>
+          </div>
+          <p class="text-xs text-slate-400 font-sans">
+            Automatically detects Python (<code class="text-emerald-300">requirements.txt</code>, <code class="text-emerald-300">pyproject.toml</code>), Node.js, Rust, Go, Java, or PHP in the active directory.
+          </p>
+
+          <div id="project-detector-box" class="p-4 rounded-xl bg-black/50 border border-white/10 space-y-3 font-mono text-xs">
+            <div class="flex items-center justify-between text-slate-400">
+              <span>Scanning project manifests...</span>
+              <div class="w-4 h-4 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Local File / Package Installer -->
+        <div class="avant-card-elevated p-6 space-y-4">
+          <h4 class="font-editorial italic text-lg sm:text-xl text-white flex items-center space-x-2.5">
+            <i data-lucide="file-archive" class="w-5 h-5 text-purple-400 not-italic"></i>
+            <span>Local Package &amp; File Installer</span>
+          </h4>
+          <p class="text-xs text-slate-400 font-sans">
+            Install directly from local files: <code class="text-purple-300">.deb</code>, <code class="text-purple-300">.rpm</code>, <code class="text-purple-300">.AppImage</code>, <code class="text-purple-300">.tar.gz</code>, <code class="text-purple-300">.zip</code>, or shell scripts.
+          </p>
+
+          <div class="space-y-3 pt-1">
+            <div class="flex space-x-2">
+              <input 
+                type="text" 
+                id="installer-file-path" 
+                placeholder="/path/to/software.deb, .AppImage, or archive..." 
+                class="editorial-input flex-1 px-4 py-2.5 text-xs font-mono bg-black/60 border border-white/20 rounded-xl"
+              />
+              <button 
+                type="button" 
+                onclick="installLocalFile()" 
+                class="px-4 py-2.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 text-xs font-mono font-medium transition flex items-center space-x-1.5 shrink-0">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span>Install File</span>
+              </button>
+            </div>
+            <div class="text-[11px] text-slate-500 font-mono">
+              Auto-handles permissions (chmod +x), desktop menu integration, and native dependencies.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Live Installation Studio & Terminal Stream (Revealed when action is planned/active) -->
+      <div id="installer-live-card" class="avant-card-elevated p-6 sm:p-8 space-y-6 hidden border-cyan-500/30 shadow-[0_0_40px_rgba(0,210,255,0.15)]">
+        
+        <!-- Header & Target Info -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <div class="flex items-center space-x-3">
+              <span id="inst-status-badge" class="px-3 py-1 rounded-full text-xs font-mono font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">PREPARING</span>
+              <h4 id="inst-target-title" class="font-editorial italic text-xl sm:text-2xl text-white">Visual Studio Code</h4>
+            </div>
+            <p id="inst-target-desc" class="text-xs sm:text-sm text-slate-300 font-sans mt-1">Code editor redefined and optimized for building modern web applications.</p>
+          </div>
+
+          <div class="flex items-center space-x-3">
+            <button id="btn-inst-cancel" onclick="cancelActiveInstall()" class="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 text-xs font-mono font-medium transition flex items-center space-x-1.5">
+              <i data-lucide="x-circle" class="w-3.5 h-3.5"></i>
+              <span>Cancel</span>
+            </button>
+            <button id="btn-inst-confirm" onclick="confirmAndExecuteInstall()" class="btn-editorial-primary px-5 py-2 text-xs font-mono font-bold flex items-center space-x-1.5">
+              <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+              <span>Confirm &amp; Install</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Stepper Progress Bar -->
+        <div class="space-y-2">
+          <div class="flex justify-between text-xs font-mono text-slate-400">
+            <span id="inst-phase-label">Phase: Resolving dependencies</span>
+            <span id="inst-percent-label">0%</span>
+          </div>
+          <div class="w-full h-2.5 rounded-full bg-white/10 overflow-hidden border border-white/10">
+            <div id="inst-progress-bar" class="h-full bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Proposed Commands Box -->
+        <div class="p-4 rounded-xl bg-black/60 border border-white/10 space-y-2">
+          <div class="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span class="flex items-center space-x-1.5">
+              <i data-lucide="terminal" class="w-3.5 h-3.5 text-cyan-400"></i>
+              <span>Execution Command:</span>
+            </span>
+            <button onclick="copyInstallCommand()" class="text-slate-400 hover:text-white text-[11px] flex items-center space-x-1">
+              <i data-lucide="copy" class="w-3 h-3"></i>
+              <span>Copy</span>
+            </button>
+          </div>
+          <div id="inst-command-text" class="font-mono text-sm text-yellow-300 break-all select-all">$ sudo pacman -S --needed --noconfirm code</div>
+        </div>
+
+        <!-- Live Terminal Stream Logs Box -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-xs font-mono text-slate-400">
+            <span>Live Output Stream</span>
+            <button onclick="clearInstallerLogs()" class="text-slate-500 hover:text-slate-300 text-[11px]">Clear View</button>
+          </div>
+          <div id="installer-terminal-logs" class="p-4 rounded-xl bg-[#030305] border border-white/15 h-64 overflow-y-auto font-mono text-xs text-slate-200 space-y-1 scrollbar-thin">
+            <div class="text-slate-500">// Ready to stream installation output...</div>
+          </div>
+        </div>
+
+        <!-- Post-Install Success Banner -->
+        <div id="inst-success-banner" class="hidden p-5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 space-y-2">
+          <div class="flex items-center space-x-2 font-bold text-sm text-emerald-300">
+            <i data-lucide="check-circle" class="w-5 h-5"></i>
+            <span>Installation Verified Successfully!</span>
+          </div>
+          <p id="inst-launch-guidance" class="text-xs font-mono text-emerald-100">Launch with: 'code' or search for Visual Studio Code in your app menu.</p>
+        </div>
+
+        <!-- Failure Remediation Banner -->
+        <div id="inst-failure-banner" class="hidden p-5 rounded-xl bg-red-950/40 border border-red-500/40 text-red-200 space-y-2">
+          <div class="flex items-center space-x-2 font-bold text-sm text-red-300">
+            <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+            <span>Installation Encountered an Issue</span>
+          </div>
+          <p id="inst-failure-msg" class="text-xs font-mono text-red-100"></p>
+          <div id="inst-failure-rem" class="text-xs text-yellow-300 font-mono bg-black/40 p-3 rounded-lg border border-yellow-500/20"></div>
+          <div class="pt-2 flex justify-end">
+            <button onclick="retryActiveInstall()" class="px-4 py-1.5 rounded-lg bg-red-500/30 hover:bg-red-500/40 text-white text-xs font-mono">Retry Installation</button>
+          </div>
+        </div>
+
+      </div>
+
     </div>
 
     <!-- ======================================================== -->
@@ -917,22 +1104,164 @@
       </div>
 
       <!-- Buttons -->
-      <div class="flex items-center justify-end space-x-4 pt-4 border-t border-white/10">
-        <button onclick="closeModal('modal-permission')" class="btn-editorial-ghost text-sm">
-          Abort
+      <div class="flex items-center justify-between pt-4 border-t border-white/10">
+        <button id="modal-perm-fallback-btn" class="text-xs font-mono text-cyan-300 hover:text-cyan-200 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/15 border border-cyan-400/30 transition">
+          <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
+          <span>Run in Terminal Fallback ↗</span>
         </button>
-        <button id="modal-perm-dryrun-btn" class="btn-editorial-secondary text-sm">
-          <i data-lucide="flask-conical" class="w-4 h-4"></i>
-          <span>Dry-Run Sandbox</span>
-        </button>
-        <button id="modal-perm-approve-btn" class="btn-editorial-primary text-sm">
-          <i data-lucide="check" class="w-4 h-4"></i>
-          <span>Authorize &amp; Execute</span>
-        </button>
+
+        <div class="flex items-center space-x-3">
+          <button onclick="closeModal('modal-permission')" class="btn-editorial-ghost text-sm">
+            Abort
+          </button>
+          <button id="modal-perm-dryrun-btn" class="btn-editorial-secondary text-sm">
+            <i data-lucide="flask-conical" class="w-4 h-4"></i>
+            <span>Dry-Run Sandbox</span>
+          </button>
+          <button id="modal-perm-approve-btn" class="btn-editorial-primary text-sm">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Authorize &amp; Execute</span>
+          </button>
+        </div>
       </div>
 
     </div>
   </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: GUI-TO-TERMINAL FALLBACK DIALOG -->
+  <!-- ======================================================== -->
+  <div id="modal-terminal-fallback" class="fixed inset-0 z-50 modal-backdrop hidden flex items-center justify-center p-4">
+
+    <div class="modal-dialog avant-card-elevated max-w-3xl w-full p-6 sm:p-8 space-y-5 border border-cyan-500/30 shadow-[0_0_80px_rgba(0,210,255,0.25)] max-h-[92vh] overflow-y-auto custom-scrollbar">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-white/10 pb-4">
+        <div class="flex items-center space-x-3.5">
+          <div class="w-11 h-11 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 flex items-center justify-center shadow-[0_0_24px_rgba(0,210,255,0.4)] shrink-0">
+            <i data-lucide="terminal" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 class="font-editorial italic text-xl sm:text-2xl text-white">Terminal Fallback Mode</h3>
+              <span id="modal-fallback-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-cyan-400/20 text-cyan-300 border border-cyan-400/30">Manual Execution</span>
+            </div>
+            <p class="text-xs text-slate-300 font-sans mt-0.5">Execute command directly in your Linux terminal with 1-click copy &amp; native terminal launch.</p>
+          </div>
+        </div>
+        <button onclick="closeModal('modal-terminal-fallback')" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+
+      <!-- Human Guidance & Reason Banner -->
+      <div id="modal-fallback-reason-box" class="p-4 sm:p-5 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 space-y-2 font-sans text-xs">
+        <div class="flex items-center space-x-2 text-cyan-300 font-bold text-sm">
+          <i data-lucide="info" class="w-4.5 h-4.5 text-cyan-400 shrink-0"></i>
+          <span id="modal-fallback-reason-title">Interactive Terminal Required</span>
+        </div>
+        <p id="modal-fallback-explanation" class="text-slate-200 text-xs sm:text-sm leading-relaxed">
+          This command requires a real Linux terminal with interactive TTY support and cannot be executed directly from the Browser GUI. You can copy the command below and run it in your terminal.
+        </p>
+      </div>
+
+      <!-- Dangerous / Privileged Warning Box (Conditional) -->
+      <div id="modal-fallback-warning-box" class="hidden p-4 rounded-2xl bg-rose-950/40 border border-rose-500/50 space-y-2 font-sans text-xs">
+        <div class="flex items-center space-x-2 text-rose-300 font-bold text-sm">
+          <i data-lucide="alert-triangle" class="w-4.5 h-4.5 text-rose-400 shrink-0"></i>
+          <span id="modal-fallback-warning-title">Caution: Elevated / Destructive Operation</span>
+        </div>
+        <p id="modal-fallback-warning-text" class="text-rose-100 text-xs leading-relaxed">
+          This command performs significant modifications or disk operations. Please review the command syntax carefully before running it.
+        </p>
+      </div>
+
+      <!-- Command Display Box with Copy Actions -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between text-xs text-slate-400 font-sans">
+          <span class="uppercase tracking-wider font-bold flex items-center space-x-1.5">
+            <i data-lucide="code" class="w-3.5 h-3.5 text-cyan-400"></i>
+            <span>Command to Run in Linux Terminal:</span>
+          </span>
+          <div class="flex items-center space-x-2">
+            <button id="modal-fallback-copy-btn" onclick="copyFallbackSingleCommand()" class="text-xs font-mono font-medium px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-white transition flex items-center space-x-1.5 shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+              <span id="modal-fallback-copy-btn-text">Copy Command</span>
+            </button>
+            <button id="modal-fallback-copy-all-btn" onclick="copyFallbackAllCommands()" class="hidden text-xs font-mono font-medium px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 transition flex items-center space-x-1.5">
+              <i data-lucide="copy-check" class="w-3.5 h-3.5"></i>
+              <span id="modal-fallback-copy-all-text">Copy All Commands</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="p-4 sm:p-5 rounded-2xl bg-black/90 border border-white/15 font-mono text-xs sm:text-sm text-white break-all select-all flex items-start space-x-3 shadow-[inset_0_0_24px_rgba(0,0,0,0.8)]">
+          <span class="text-cyan-400 select-none font-bold">$</span>
+          <pre id="modal-fallback-command-text" class="flex-1 font-semibold text-white whitespace-pre-wrap font-mono leading-relaxed">-</pre>
+        </div>
+      </div>
+
+      <!-- Metadata / Badges & Prerequisites Grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+        <!-- Prerequisites Box -->
+        <div class="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2">
+          <span class="text-slate-400 text-[11px] block uppercase font-sans font-bold flex items-center space-x-1.5">
+            <i data-lucide="folder-check" class="w-3.5 h-3.5 text-cyan-400"></i>
+            <span>Prerequisites</span>
+          </span>
+          <div id="modal-fallback-prereqs-list" class="space-y-1 text-slate-200 text-xs font-sans">
+            <div>• Open your standard Linux terminal emulator</div>
+          </div>
+        </div>
+
+        <!-- Expected Output Box -->
+        <div class="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2">
+          <span class="text-slate-400 text-[11px] block uppercase font-sans font-bold flex items-center space-x-1.5">
+            <i data-lucide="eye" class="w-3.5 h-3.5 text-emerald-400"></i>
+            <span>Expected Output</span>
+          </span>
+          <p id="modal-fallback-expected-output" class="text-slate-300 text-xs font-sans leading-relaxed">
+            Command output printed to stdout followed by clean shell prompt return.
+          </p>
+        </div>
+      </div>
+
+      <!-- Step-by-Step Instructions Accordion -->
+      <div class="rounded-2xl bg-white/[0.02] border border-white/10 overflow-hidden">
+        <button onclick="toggleFallbackInstructions()" class="w-full p-4 flex items-center justify-between text-left text-xs font-sans font-semibold text-slate-200 hover:bg-white/[0.04] transition">
+          <span class="flex items-center space-x-2">
+            <i data-lucide="book-open" class="w-4 h-4 text-cyan-400"></i>
+            <span>Step-by-Step Manual Execution Instructions</span>
+          </span>
+          <i id="modal-fallback-instructions-arrow" data-lucide="chevron-down" class="w-4 h-4 text-slate-400 transition-transform duration-200"></i>
+        </button>
+        <div id="modal-fallback-instructions-content" class="hidden p-4 pt-1 border-t border-white/5 space-y-2 text-xs font-sans text-slate-300">
+          <!-- Dynamically populated steps -->
+        </div>
+      </div>
+
+      <!-- Modal Footer & Primary Actions -->
+      <div class="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-white/10">
+        <button onclick="closeModal('modal-terminal-fallback')" class="btn-editorial-ghost text-xs sm:text-sm">
+          Close
+        </button>
+
+        <div class="flex flex-wrap items-center gap-2.5">
+          <!-- Run in Terminal Button (Native OS Terminal Launcher) -->
+          <button id="modal-fallback-run-terminal-btn" onclick="launchFallbackInTerminal()" class="btn-editorial-secondary !py-2 !px-4 text-xs sm:text-sm font-tech border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/20 shadow-[0_0_20px_rgba(0,210,255,0.2)]">
+            <i data-lucide="external-link" class="w-4 h-4 text-cyan-300"></i>
+            <span id="modal-fallback-run-terminal-label">Run in Terminal ↗</span>
+          </button>
+
+          <!-- Retry Execution Button -->
+          <button id="modal-fallback-retry-btn" onclick="retryFallbackExecution()" class="btn-editorial-primary !py-2 !px-5 text-xs sm:text-sm font-tech font-bold">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            <span>Retry Execution</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
 
   <!-- ======================================================== -->
   <!-- MODAL: LOGS VIEWER -->

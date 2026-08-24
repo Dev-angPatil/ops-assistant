@@ -611,15 +611,31 @@ class ReActAgent:
             if not matched_item:
                 distro_sigs = self.distro_db.get_error_signatures(distro_info.family_id)
                 for sig in distro_sigs:
-                    if re.search(sig["pattern"], combined_text, flags=re.IGNORECASE):
+                    pattern = sig.get("pattern", "")
+                    if pattern and re.search(pattern, combined_text, flags=re.IGNORECASE):
+                        sig_id = sig.get("id", "DISTRO_SIGNATURE")
+                        explanation = sig.get("explanation", f"Matched error signature {sig_id}")
+                        remediation = sig.get("remediation", "")
+                        symptom = sig.get("symptom") or explanation or f"System anomaly matching {sig_id}"
+                        root_cause = sig.get("root_cause") or explanation or f"Issue detected by {distro_info.distro_name} error signature {sig_id}"
+
+                        commands_list = []
+                        if "recommended_commands" in sig and isinstance(sig["recommended_commands"], list):
+                            for cmd in sig["recommended_commands"]:
+                                commands_list.append((cmd, SafetyLevel.READ_ONLY, 0.05, f"Distro-specific check for {distro_info.family_id}"))
+                        elif remediation:
+                            commands_list.append((remediation, SafetyLevel.READ_ONLY, 0.05, f"Distro-specific remediation for {distro_info.family_id}"))
+                        else:
+                            commands_list.append(("journalctl -xe --no-pager -n 20", SafetyLevel.READ_ONLY, 0.05, "Inspect recent system logs"))
+
                         matched_item = {
-                            "id": sig["id"],
-                            "symptom": sig["symptom"],
-                            "root_cause": sig["root_cause"],
-                            "commands": [(cmd, SafetyLevel.READ_ONLY, 0.05, f"Distro-specific check for {distro_info.family_id}") for cmd in sig["recommended_commands"]],
-                            "rationale": f"Matched distribution rule signature: {sig['id']}"
+                            "id": sig_id,
+                            "symptom": symptom,
+                            "root_cause": root_cause,
+                            "commands": commands_list,
+                            "rationale": f"Matched distribution rule signature: {sig_id}"
                         }
-                        evidence.append(f"Matched {distro_info.distro_name} error signature '{sig['id']}'")
+                        evidence.append(f"Matched {distro_info.distro_name} error signature '{sig_id}'")
                         break
 
         if llm_diagnosis and isinstance(llm_diagnosis, dict) and "symptom" in llm_diagnosis:
@@ -649,7 +665,7 @@ class ReActAgent:
             root_cause = matched_item["root_cause"]
             rationale = matched_item["rationale"]
             raw_cmds = [
-                (cmd[0].replace("{service}", svc_name), cmd[1], cmd[2], cmd[3])
+                (cmd[0].replace("{service}", svc_name).replace("{path}", os.getcwd()), cmd[1], cmd[2], cmd[3])
                 for cmd in matched_item["commands"]
             ]
             raw_cmds = self._adapt_commands_for_distro(
@@ -877,6 +893,18 @@ class ReActAgent:
                 context=context,
                 llm_provider=self.llm_provider
             )
+            from ops_assistant.tools.terminal_fallback import TerminalFallbackDetector
+            fallback = TerminalFallbackDetector.build_fallback_payload(
+                command_or_commands=res_dict.get("planned_commands") or cmd_str,
+                returncode=ret_code,
+                stdout=stdout,
+                stderr=stderr,
+                blocked=bool(res_dict.get("blocked")),
+                safety_level=res_dict.get("safety_level"),
+                risk_score=float(res_dict.get("risk_score", 0.05)),
+                cwd=context.get("cwd") if isinstance(context, dict) else None
+            )
+
             if not res_dict.get("explanation_paragraph") or res_dict.get("explanation_paragraph") == res_dict.get("summary"):
                 res_dict["explanation_paragraph"] = outcome.get("explanation_paragraph", "")
             res_dict["natural_explanation"] = outcome.get("natural_explanation", "")
@@ -885,7 +913,9 @@ class ReActAgent:
             res_dict["changes_summary"] = outcome.get("changes_summary", "")
             res_dict["failure_analysis"] = outcome.get("failure_analysis")
             res_dict["is_success"] = outcome.get("is_success", True)
+            res_dict["terminal_fallback"] = fallback.to_dict()
             return res_dict
+
 
         resolved_query = query
         if hasattr(self, "context_manager") and self.context_manager is not None:
@@ -1010,62 +1040,34 @@ class ReActAgent:
         }
 
         # -----------------------------------------------------------------
-        # 1. Package Management (Distro-Adaptive)
+        # 1. Package Management (Distro-Adaptive AI-Powered Installer)
         # -----------------------------------------------------------------
         if intent.type == IntentType.PACKAGE_INSTALL:
-            pkg = args.get("package") or args.get("pkg", "")
-            d_info = self.distro_detector.detect(override_family=distro_override)
-            pkg_mgr = d_info.package_manager
+            from ops_assistant.installer.engine import PackageInstallerEngine
+            installer = PackageInstallerEngine(distro_override=distro_override)
+            plan = installer.resolve_plan(query, distro_override=distro_override)
 
-            db_cmd = self.distro_db.get_command(d_info.family_id, "package", "install", package=pkg)
-            db_rb = self.distro_db.get_command(d_info.family_id, "package", "remove", package=pkg)
+            result["command"] = plan.primary_command
+            result["command_description"] = plan.explanation
+            result["summary"] = f"Install {plan.target_name} ({plan.source_label})"
+            result["safety_level"] = plan.safety_level.value if hasattr(plan.safety_level, "value") else str(plan.safety_level)
+            result["risk_score"] = plan.risk_score
+            result["requires_permission"] = plan.requires_confirmation
+            result["rollback_command"] = plan.rollback_command
+            result["install_plan"] = plan.to_dict()
+            result["planned_commands"] = [s.to_dict() for s in plan.steps]
 
-            if db_cmd:
-                cmd = db_cmd
-                rb = db_rb
-                desc = f"Downloads and installs '{pkg}' package using {pkg_mgr} on {d_info.distro_name}."
-            elif pkg_mgr == "pacman":
-                cmd = f"sudo pacman -S --needed --noconfirm {pkg}"
-                rb = f"sudo pacman -Rns --noconfirm '{pkg}'"
-                desc = f"Downloads and installs the '{pkg}' software package using pacman on {d_info.distro_name}."
-            elif pkg_mgr in ("apt", "apt-get"):
-                cmd = f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg}"
-                rb = f"sudo apt-get remove -y '{pkg}'"
-                desc = f"Downloads and installs the '{pkg}' software package using apt on {d_info.distro_name}."
-            elif pkg_mgr == "dnf":
-                cmd = f"sudo dnf install -y {pkg}"
-                rb = f"sudo dnf remove -y '{pkg}'"
-                desc = f"Downloads and installs the '{pkg}' software package using dnf on {d_info.distro_name}."
-            elif pkg_mgr == "apk":
-                cmd = f"sudo apk add {pkg}"
-                rb = f"sudo apk del '{pkg}'"
-                desc = f"Downloads and installs the '{pkg}' software package using apk on {d_info.distro_name}."
-            elif pkg_mgr == "zypper":
-                cmd = f"sudo zypper install -y {pkg}"
-                rb = f"sudo zypper remove -y '{pkg}'"
-                desc = f"Downloads and installs the '{pkg}' software package using zypper on {d_info.distro_name}."
-            else:
-                cmd = f"sudo {pkg_mgr} install -y {pkg}"
-                rb = f"sudo {pkg_mgr} remove -y '{pkg}'"
-                desc = f"Installs '{pkg}' package using {pkg_mgr}."
-
-            result["command"] = cmd
-            result["command_description"] = desc
-            result["summary"] = f"Install software package '{pkg}'"
-            result["safety_level"] = SafetyLevel.MODIFYING.value
-            result["risk_score"] = 0.35
-            result["requires_permission"] = True
-            result["rollback_command"] = rb
-            result["planned_commands"] = [{
-                "command": cmd,
-                "description": desc,
-                "safety_level": SafetyLevel.MODIFYING.value,
-                "risk_score": 0.35
-            }]
             if execute:
-                executor = SafeExecutor()
-                exec_res = executor.execute(cmd, rollback_cmd=rb)
-                result["output"] = exec_res
+                inst_res = installer.execute_plan(plan, dry_run=False)
+                result["output"] = {
+                    "returncode": inst_res.returncode,
+                    "stdout": inst_res.stdout,
+                    "stderr": inst_res.stderr,
+                    "success": inst_res.success,
+                    "verified": inst_res.verified,
+                    "verification_message": inst_res.verification_message,
+                    "launch_instructions": inst_res.launch_instructions,
+                }
                 result["executed"] = True
             return _finalize_outcome(result)
 

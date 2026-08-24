@@ -5,6 +5,7 @@ from ops_assistant.nlp.context_manager import ContextManager, ConversationTurn
 from ops_assistant.nlp.ambiguity_resolver import AmbiguityResolver, AmbiguityResolution
 from ops_assistant.nlp.synonym_dict import SynonymDictionary
 from ops_assistant.nlp.entity_extractor import EntityExtractor, ExtractedEntities
+from ops_assistant.nlp.autocomplete import AutocompleteEngine, Suggestion, get_autocomplete_engine
 
 __all__ = [
     "IntentRouter",
@@ -16,4 +17,7 @@ __all__ = [
     "AmbiguityResolution",
     "SynonymDictionary",
     "EntityExtractor",
+    "AutocompleteEngine",
+    "Suggestion",
+    "get_autocomplete_engine",
 ]
