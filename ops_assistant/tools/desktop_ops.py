@@ -92,7 +92,7 @@ def find_target_folder(target: str, max_depth: int = 5) -> Optional[Path]:
         except Exception:
             pass
 
-    # Pass 2: substring match (e.g. "dsa" in "DSA-Leetcode" or "my_dsa")
+    # Pass 2: token boundary / prefix / suffix match (e.g. "dsa" in "DSA-Leetcode", "my_dsa", "DSA_Prep")
     visited.clear()
     for root in priority_roots:
         if not root.exists() or str(root) in visited:
@@ -110,7 +110,8 @@ def find_target_folder(target: str, max_depth: int = 5) -> Optional[Path]:
                     pass
 
                 for d in dirnames:
-                    if target_lower in d.lower():
+                    d_tokens = re.split(r"[-_\s.]+", d.lower())
+                    if target_lower in d_tokens or d.lower().startswith(target_lower) or d.lower().endswith(target_lower):
                         return Path(dirpath) / d
         except Exception:
             pass
@@ -170,7 +171,11 @@ def find_target_file(target: str, max_depth: int = 5) -> Optional[Path]:
                     pass
 
                 for f in filenames:
-                    if f.lower() == target_lower or target_lower in f.lower():
+                    f_name_lower = f.lower()
+                    if f_name_lower == target_lower:
+                        return Path(dirpath) / f
+                    f_tokens = re.split(r"[-_\s.]+", f_name_lower)
+                    if target_lower in f_tokens or f_name_lower.startswith(target_lower):
                         return Path(dirpath) / f
         except Exception:
             pass
