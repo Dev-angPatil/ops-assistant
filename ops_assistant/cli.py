@@ -57,8 +57,21 @@ try:
 except ImportError:
     HAS_PROMPT_TOOLKIT = False
 
+    class Completer:  # type: ignore[no-redef]
+        """Fallback Completer interface when prompt_toolkit is not installed."""
+        pass
 
-class CLIAutocompleteCompleter(Completer if HAS_PROMPT_TOOLKIT else object):
+    class Completion:  # type: ignore[no-redef]
+        """Fallback Completion item when prompt_toolkit is not installed."""
+        def __init__(self, text: str, start_position: int = 0, display: Optional[str] = None, display_meta: Optional[str] = None):
+            self.text = text
+            self.start_position = start_position
+            self.display = display or text
+            self.display_text = self.display
+            self.display_meta = display_meta or ""
+
+
+class CLIAutocompleteCompleter(Completer):
     """Real-time contextual prompt_toolkit completer for natural language requests."""
 
     def __init__(self, engine: Optional[AutocompleteEngine] = None, cwd: Optional[str] = None):

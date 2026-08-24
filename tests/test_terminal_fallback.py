@@ -8,7 +8,7 @@ Covers:
 - REST API integration with terminal fallback payloads
 """
 
-import pytest
+import unittest
 from unittest.mock import patch, MagicMock
 
 from ops_assistant.tools.terminal_fallback import (
@@ -21,8 +21,7 @@ from ops_assistant.explainer.xai import ExecutionOutcomeExplainer
 from ops_assistant.agent.core import ReActAgent
 
 
-
-class TestTerminalFallbackDetector:
+class TestTerminalFallbackDetector(unittest.TestCase):
 
     def test_detect_interactive_tui_commands(self):
         """Interactive commands (htop, vim, nano, less, tmux, ssh, etc.) should be detected."""
@@ -48,7 +47,7 @@ class TestTerminalFallbackDetector:
         ]
         for cmd in interactive_cmds:
             reason = TerminalFallbackDetector.detect_fallback_reason(command=cmd)
-            assert reason == FallbackReason.INTERACTIVE_TTY_REQUIRED, f"Failed for cmd: {cmd}"
+            self.assertEqual(reason, FallbackReason.INTERACTIVE_TTY_REQUIRED, f"Failed for cmd: {cmd}")
 
     def test_detect_tty_error_outputs(self):
         """Errors indicating missing TTY / stdin / terminal should be classified as INTERACTIVE_TTY_REQUIRED."""
@@ -63,7 +62,7 @@ class TestTerminalFallbackDetector:
             reason = TerminalFallbackDetector.detect_fallback_reason(
                 command=cmd, returncode=rc, stdout=stdout, stderr=stderr
             )
-            assert reason == FallbackReason.INTERACTIVE_TTY_REQUIRED
+            self.assertEqual(reason, FallbackReason.INTERACTIVE_TTY_REQUIRED)
 
     def test_detect_sudo_password_prompts(self):
         """Sudo password requirement failures must be classified as SUDO_PASSWORD_REQUIRED."""
@@ -77,7 +76,7 @@ class TestTerminalFallbackDetector:
             reason = TerminalFallbackDetector.detect_fallback_reason(
                 command=cmd, returncode=rc, stdout=stdout, stderr=stderr
             )
-            assert reason == FallbackReason.SUDO_PASSWORD_REQUIRED
+            self.assertEqual(reason, FallbackReason.SUDO_PASSWORD_REQUIRED)
 
     def test_detect_permission_denied(self):
         """Permission denied outputs without sudo password prompt should be PERMISSION_DENIED."""
@@ -91,7 +90,7 @@ class TestTerminalFallbackDetector:
             reason = TerminalFallbackDetector.detect_fallback_reason(
                 command=cmd, returncode=rc, stdout=stdout, stderr=stderr
             )
-            assert reason == FallbackReason.PERMISSION_DENIED
+            self.assertEqual(reason, FallbackReason.PERMISSION_DENIED)
 
     def test_detect_interactive_prompts(self):
         """Interactive confirmation prompts ([y/N], (yes/no)?) must be INTERACTIVE_PROMPT."""
@@ -104,7 +103,7 @@ class TestTerminalFallbackDetector:
             reason = TerminalFallbackDetector.detect_fallback_reason(
                 command=cmd, returncode=rc, stdout=stdout, stderr=stderr
             )
-            assert reason == FallbackReason.INTERACTIVE_PROMPT
+            self.assertEqual(reason, FallbackReason.INTERACTIVE_PROMPT)
 
     def test_detect_destructive_blocked_commands(self):
         """Destructive / blocked commands must be classified as DESTRUCTIVE_OR_BLOCKED."""
@@ -113,7 +112,7 @@ class TestTerminalFallbackDetector:
             blocked=True,
             safety_level=SafetyLevel.DESTRUCTIVE
         )
-        assert reason == FallbackReason.DESTRUCTIVE_OR_BLOCKED
+        self.assertEqual(reason, FallbackReason.DESTRUCTIVE_OR_BLOCKED)
 
     def test_successful_non_interactive_no_fallback(self):
         """Standard successful commands should return None (needs_fallback=False)."""
@@ -123,24 +122,24 @@ class TestTerminalFallbackDetector:
             stdout="total 12\ndrwxr-xr-x 2 user user 4096 ...",
             stderr=""
         )
-        assert reason is None
+        self.assertIsNone(reason)
 
 
-class TestFallbackPayloadBuilder:
+class TestFallbackPayloadBuilder(unittest.TestCase):
 
     def test_build_payload_for_interactive_command(self):
         payload = TerminalFallbackDetector.build_fallback_payload(
             command_or_commands="htop",
             cwd="/home/god/Projects/edi2"
         )
-        assert payload.needs_fallback is True
-        assert payload.reason_code == "INTERACTIVE_TTY_REQUIRED"
-        assert "Interactive Terminal Required" in payload.reason_title
-        assert "interactive TTY" in payload.explanation
-        assert payload.single_command == "htop"
-        assert payload.requires_sudo is False
-        assert len(payload.instructions) >= 3
-        assert payload.expected_output != ""
+        self.assertTrue(payload.needs_fallback)
+        self.assertEqual(payload.reason_code, "INTERACTIVE_TTY_REQUIRED")
+        self.assertIn("Interactive Terminal Required", payload.reason_title)
+        self.assertIn("interactive TTY", payload.explanation)
+        self.assertEqual(payload.single_command, "htop")
+        self.assertFalse(payload.requires_sudo)
+        self.assertGreaterEqual(len(payload.instructions), 3)
+        self.assertNotEqual(payload.expected_output, "")
 
     def test_build_payload_for_sudo_command(self):
         payload = TerminalFallbackDetector.build_fallback_payload(
@@ -149,11 +148,11 @@ class TestFallbackPayloadBuilder:
             stderr="sudo: a password is required",
             cwd="/var/www"
         )
-        assert payload.needs_fallback is True
-        assert payload.reason_code == "SUDO_PASSWORD_REQUIRED"
-        assert payload.requires_sudo is True
-        assert any("sudo password" in inst["detail"].lower() for inst in payload.instructions)
-        assert any("cd /var/www" in p for p in payload.prerequisites)
+        self.assertTrue(payload.needs_fallback)
+        self.assertEqual(payload.reason_code, "SUDO_PASSWORD_REQUIRED")
+        self.assertTrue(payload.requires_sudo)
+        self.assertTrue(any("sudo password" in inst["detail"].lower() for inst in payload.instructions))
+        self.assertTrue(any("cd /var/www" in p for p in payload.prerequisites))
 
     def test_build_payload_for_multi_commands(self):
         cmds = [
@@ -168,32 +167,32 @@ class TestFallbackPayloadBuilder:
             stderr="npm ERR! code ENOENT",
             cwd="/home/god/Projects/app"
         )
-        assert payload.needs_fallback is True
-        assert len(payload.commands) == 4
-        assert payload.multi_command_script == "git checkout main\ngit pull origin main\nnpm install\nnpm run build"
-        assert payload.to_dict()["multi_command_script"] == payload.multi_command_script
+        self.assertTrue(payload.needs_fallback)
+        self.assertEqual(len(payload.commands), 4)
+        self.assertEqual(payload.multi_command_script, "git checkout main\ngit pull origin main\nnpm install\nnpm run build")
+        self.assertEqual(payload.to_dict()["multi_command_script"], payload.multi_command_script)
 
     def test_prerequisites_generation_docker_and_venv(self):
         prereqs_docker = TerminalFallbackDetector.generate_prerequisites(
             "docker-compose up -d",
             cwd="/app"
         )
-        assert any("Docker daemon" in p for p in prereqs_docker)
-        assert any("cd /app" in p for p in prereqs_docker)
+        self.assertTrue(any("Docker daemon" in p for p in prereqs_docker))
+        self.assertTrue(any("cd /app" in p for p in prereqs_docker))
 
         prereqs_python = TerminalFallbackDetector.generate_prerequisites(
             "pytest tests/",
             cwd="/home/god/Projects/edi2"
         )
-        assert any("virtual environment" in p.lower() or "cd /home/god/Projects/edi2" in p for p in prereqs_python)
+        self.assertTrue(any("virtual environment" in p.lower() or "cd /home/god/Projects/edi2" in p for p in prereqs_python))
 
 
-class TestNativeTerminalLauncher:
+class TestNativeTerminalLauncher(unittest.TestCase):
 
     def test_find_available_terminal_emulator(self):
         """Should detect at least one terminal emulator or fallback gracefully."""
         term = TerminalFallbackDetector.find_available_terminal_emulator()
-        assert term is None or isinstance(term, str)
+        self.assertTrue(term is None or isinstance(term, str))
 
     @patch("shutil.which")
     @patch("subprocess.Popen")
@@ -208,13 +207,13 @@ class TestNativeTerminalLauncher:
             cwd="/tmp",
             hold_open=True
         )
-        assert res["success"] is True
-        assert res["pid"] == 9999
-        assert res["terminal"] == "x-terminal-emulator"
+        self.assertTrue(res["success"])
+        self.assertEqual(res["pid"], 9999)
+        self.assertEqual(res["terminal"], "x-terminal-emulator")
         mock_popen.assert_called_once()
 
 
-class TestExplainerAndAgentIntegration:
+class TestExplainerAndAgentIntegration(unittest.TestCase):
 
     def test_xai_explainer_includes_terminal_fallback(self):
         outcome = ExecutionOutcomeExplainer.explain_outcome(
@@ -224,23 +223,21 @@ class TestExplainerAndAgentIntegration:
             stderr="sudo: a password is required",
             query="restart web server"
         )
-        assert "terminal_fallback" in outcome
+        self.assertIn("terminal_fallback", outcome)
         fb = outcome["terminal_fallback"]
-        assert fb["needs_fallback"] is True
-        assert fb["reason_code"] == "SUDO_PASSWORD_REQUIRED"
+        self.assertTrue(fb["needs_fallback"])
+        self.assertEqual(fb["reason_code"], "SUDO_PASSWORD_REQUIRED")
 
     def test_agent_core_attaches_terminal_fallback(self):
         agent = ReActAgent(llm_provider=None)
         res = agent.execute_agent_action("show interactive htop", execute=False)
-        assert "terminal_fallback" in res
+        self.assertIn("terminal_fallback", res)
         fb = res["terminal_fallback"]
-        assert fb is not None
-        assert "commands" in fb or "single_command" in fb
+        self.assertIsNotNone(fb)
+        self.assertTrue("commands" in fb or "single_command" in fb)
 
 
-
-
-class TestServerTerminalFallbackAPI:
+class TestServerTerminalFallbackAPI(unittest.TestCase):
 
     def test_fallback_payload_endpoint_resolution(self):
         payload = TerminalFallbackDetector.build_fallback_payload(
@@ -248,15 +245,15 @@ class TestServerTerminalFallbackAPI:
             cwd="/home/god"
         )
         data = payload.to_dict()
-        assert data["needs_fallback"] is True
-        assert data["reason_code"] == "INTERACTIVE_TTY_REQUIRED"
-        assert data["single_command"] == "vim /etc/fstab"
-        assert len(data["instructions"]) > 0
+        self.assertTrue(data["needs_fallback"])
+        self.assertEqual(data["reason_code"], "INTERACTIVE_TTY_REQUIRED")
+        self.assertEqual(data["single_command"], "vim /etc/fstab")
+        self.assertGreater(len(data["instructions"]), 0)
 
     def test_execute_blocked_command_returns_terminal_fallback(self):
         cmd = "mkfs.ext4 /dev/sda"
         val = CommandSafetyValidator.validate(cmd)
-        assert val.level == SafetyLevel.DESTRUCTIVE
+        self.assertEqual(val.level, SafetyLevel.DESTRUCTIVE)
 
         fallback = TerminalFallbackDetector.build_fallback_payload(
             command_or_commands=cmd,
@@ -267,6 +264,10 @@ class TestServerTerminalFallbackAPI:
             risk_score=val.risk_score
         )
         fb_dict = fallback.to_dict()
-        assert fb_dict["needs_fallback"] is True
-        assert fb_dict["reason_code"] == "DESTRUCTIVE_OR_BLOCKED"
-        assert fb_dict["is_destructive"] is True
+        self.assertTrue(fb_dict["needs_fallback"])
+        self.assertEqual(fb_dict["reason_code"], "DESTRUCTIVE_OR_BLOCKED")
+        self.assertTrue(fb_dict["is_destructive"])
+
+
+if __name__ == "__main__":
+    unittest.main()

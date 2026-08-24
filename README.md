@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-227%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-326%20passed-brightgreen.svg)]()
 [![Latency](https://img.shields.io/badge/latency-%3C50ms-success.svg)]()
 [![Accuracy](https://img.shields.io/badge/accuracy-100%25-brightgreen.svg)]()
 [![Distro Support](https://img.shields.io/badge/distros-Debian%20%7C%20RHEL%20%7C%20Arch%20%7C%20Alpine%20%7C%20SUSE%20%7C%20BOSS-purple.svg)]()
@@ -26,25 +26,35 @@ The **AI-Powered Linux Operations Assistant** (`ops-assistant`) is an autonomous
    - **Layer 2 (Google Gemini API)**: High-speed cloud copilot (`gemini-2.0-flash`, `gemini-1.5-pro`) with structured JSON outputs.
    - **Layer 3 (Local GGUF / Ollama)**: Fully offline edge inference via `llama-cpp-python` with hardware-aware auto-tuning.
 
-2. **Desktop & System Intelligence Ecosystem (`ops_assistant.collectors`, `ops_assistant.db`)**:
+2. **GUI-to-Terminal Fallback Engine (`ops_assistant.tools.terminal_fallback`)**:
+   - 7-category taxonomy for interactive TTY tools (`htop`, `vim`, `nano`, `tmux`, `ssh`), sudo passwords, permissions, and destructive guardrails.
+   - 1-click clipboard copy buttons, step-by-step instructions, and native Linux desktop terminal launcher (`kitty`, `alacritty`, `gnome-terminal`, `konsole`, `x-terminal-emulator`).
+
+3. **Real-Time Intelligent Autocomplete (`ops_assistant.nlp.autocomplete`)**:
+   - Sub-10ms contextual query suggestions combining Linux system tasks, project manifests (`package.json`, `requirements.txt`, `Cargo.toml`), active directory structure, and SQLite history.
+
+4. **Universal Package & Project Installer (`ops_assistant.installer`)**:
+   - Automated multi-ecosystem installer across Pacman, AUR, APT, DNF, Flatpak, Snap, Pip, UV, Npm, and Cargo with database lock preflight detection (`/var/lib/pacman/db.lck`, `dpkg` locks) and rollback tracking.
+
+5. **Voice Subsystem & Web GUI Audio (`ops_assistant.voice`)**:
+   - Non-blocking audio capture, RMS voice activity detection (VAD), Hinglish phonetic normalizer for Linux vocabulary, and luxury Web Audio feedback.
+
+6. **Desktop & System Intelligence Ecosystem (`ops_assistant.collectors`, `ops_assistant.db`)**:
    - **Desktop Introspector**: Live detection of compositors (Hyprland, Sway, KDE Plasma, GNOME), theme frameworks (HyDE, Omakub), wallpaper engines (hyprpaper, matugen, swww), and audio daemons (PipeWire, WirePlumber).
    - **User Configuration Indexer**: Scans and catalogs user configs (`hyprland.lua`, `waybar/config.jsonc`, `kitty.conf`, `.zshrc`, `/etc/fstab`) for instant context-aware file retrieval.
 
-3. **Dynamic Causality DAG Engine (`ops_assistant.explainer.causality_dag`)**:
+7. **Dynamic Causality DAG Engine (`ops_assistant.explainer.causality_dag`)**:
    - Constructs directed causal graphs $G = (V, E)$ to isolate true root causes with topological in-degree minimization ($\text{InDegree}=0$), suppressing symptom cascade noise (e.g. `KERNEL_OOM` $\rightarrow$ `PROCESS_KILLED` $\rightarrow$ `SOCKET_CLOSED` $\rightarrow$ `UPSTREAM_502`).
 
-4. **AST Safety Guardrails & 4-Tier Risk Matrix (`ops_assistant.tools.safety`)**:
+8. **AST Safety Guardrails & 4-Tier Risk Matrix (`ops_assistant.tools.safety`)**:
    - Classifies commands into `READ_ONLY` (0.05), `MODIFYING` (0.35), `HIGH_RISK` (0.70), and `DESTRUCTIVE` (1.00).
    - Hard-blocks destructive commands (`rm -rf /`, fork bombs, raw block writes) with zero execution leaks.
 
-5. **Modular Distro Knowledge Packs & Dynamic Host Introspection (`ops_assistant.db.distro_db`, `ops_assistant.collectors.host_introspector`)**:
-   - Backed by lean, self-contained distribution packs (`debian`, `rhel`, `arch`, `alpine`, `suse`, `base`) that only install the active host distribution data to eliminate bloat, paired with live runtime capability discovery.
-
-6. **Explainable AI (XAI) & Rollback Synthesis (`ops_assistant.explainer.xai`)**:
+9. **Explainable AI (XAI) & Rollback Synthesis (`ops_assistant.explainer.xai`)**:
    - Provides plain-English flag-by-flag breakdowns across 35+ core Linux utilities and synthesizes inverse rollback commands (`systemctl start <-> stop`, `ufw allow <-> delete allow`).
 
-7. **Avant-Garde Web GUI Cockpit (`ops_assistant.gui`)**:
-   - 2-column cockpit layout with collapsible tactical stream (`Ctrl+J`), real-time Chart.js telemetry stream, and slide-over Mission History Drawer (`Ctrl+H`).
+10. **Avant-Garde Web GUI Cockpit (`ops_assistant.gui`)**:
+    - 2-column cockpit layout with collapsible tactical stream (`Ctrl+J`), real-time Chart.js telemetry stream, and slide-over Mission History Drawer (`Ctrl+H`).
 
 ---
 

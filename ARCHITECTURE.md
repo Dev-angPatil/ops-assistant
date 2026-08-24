@@ -166,3 +166,22 @@ graph TD
   - Verifies background process PID liveness (`os.kill(pid, 0)`) to guard against zombie/interrupted states.
   - Automatically promotes downloaded model weights to active inference on next CLI or GUI invocation with zero user interruption.
 
+### 14. **GUI-to-Terminal Fallback Engine (`ops_assistant.tools.terminal_fallback`)**
+- **Automated Fallback Classifier**: 7-category taxonomy (`INTERACTIVE_TTY_REQUIRED`, `SUDO_PASSWORD_REQUIRED`, `PERMISSION_DENIED`, `INTERACTIVE_PROMPT`, `DESTRUCTIVE_OR_BLOCKED`, `FAILED_NEEDS_TERMINAL`, `MANUAL_RUN_REQUESTED`).
+- **Structured Payload Generator**: Generates 1-click clipboard commands, prerequisites, expected terminal output previews, and step-by-step instructions.
+- **Native Desktop Terminal Launcher**: Dispatches commands directly into host desktop terminal emulators (`x-terminal-emulator`, `kitty`, `alacritty`, `gnome-terminal`, `konsole`, `foot`) with interactive shell hold-open wrappers.
+
+### 15. **Real-Time Contextual Autocomplete Engine (`ops_assistant.nlp.autocomplete`)**
+- **Sub-10ms Pipeline**: Multi-source ranking engine correlating static Linux task knowledge bases, dynamic project manifests (`package.json`, `requirements.txt`, `Cargo.toml`), active working directory contents, and historical command SQLite logs.
+- **Cross-Interface Support**: Integrates directly into `prompt_toolkit` in the CLI REPL and live popover dropdowns in the Web GUI.
+
+### 16. **Universal Package & Project Installer (`ops_assistant.installer.*`)**
+- **Multi-Ecosystem Resolution**: Translates high-level install requests across system package managers (Pacman, AUR/Yay/Paru, APT, DNF, Flatpak, Snap) and language managers (Pip, UV, Npm, Cargo).
+- **Lock Collision Preflight**: Detects `/var/lib/pacman/db.lck` and `/var/lib/dpkg/lock-frontend` collisions and prescribes automated remediation before transaction dispatch.
+- **Verification & Rollback Engine**: Inspects PATH binaries, library imports, and systemd units with guaranteed uninstall/rollback tracking.
+
+### 17. **Voice Processing & Speech Subsystem (`ops_assistant.voice.*`)**
+- **Multi-Backend Capture**: Non-blocking audio recording across `sounddevice`, `ffmpeg`, `arecord`, and PulseAudio/PipeWire.
+- **Energy VAD**: RMS-based real-time silence detection for hands-free auto-stop.
+- **Phonetic Normalization**: Lexical and phonetic normalizer correcting Linux sysadmin terminology across English, Hinglish, and regional accents.
+
