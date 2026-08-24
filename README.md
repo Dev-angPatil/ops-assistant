@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-326%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-346%20passed-brightgreen.svg)]()
 [![Latency](https://img.shields.io/badge/avg_latency-45.2ms-success.svg)]()
 [![Accuracy](https://img.shields.io/badge/accuracy-100%25-brightgreen.svg)]()
 [![Distro Support](https://img.shields.io/badge/distros-Debian%20%7C%20RHEL%20%7C%20Arch%20%7C%20Alpine%20%7C%20SUSE%20%7C%20BOSS-purple.svg)]()
@@ -14,11 +14,7 @@
 
 ## The Problem
 
-<<<<<<< HEAD
-The **AI-Powered Linux Operations Assistant** (`ops-assistant`) is an autonomous, explainable, and air-gapped system administration copilot built specifically for modern Linux operating environments. It ingests natural language sysadmin queries, correlates multi-vector system telemetry (`procfs`, `sysfs`, `journald`, `dmesg`, `/var/log/*`, `/proc/pressure/*` PSI metrics, `systemd` / `OpenRC`), introspects desktop environments (**Hyprland/HyDE, KDE Plasma, GNOME, Wayland, PipeWire**), indexes active user configuration files, executes in-app media & IPC controls, isolates root causes across 16+ failure taxonomy classes in **<50ms**, and delivers step-by-step Explainable AI (XAI) rationale, flag-by-flag command breakdowns, 4-tier risk scoring, and automatic state-reverting rollback generation.
-=======
 When a production Linux server crashes at 3 AM, the operator stares at thousands of lines of `journalctl`, `dmesg`, and `/var/log/*` under extreme pressure. A single root cause — say, Kernel OOM — cascades into dozens of symptoms: worker process killed → socket hangup → reverse proxy 502. **Generic LLM chatbots try to fix the 502. We isolate the OOM.**
->>>>>>> 0f1d406 (chore(submission): finalize documentation, update test counts to 326, and clean dev artifacts)
 
 Most AI assistants are cloud-dependent wrappers that hallucinate shell commands, ignore distro differences, and offer zero safety guarantees. They cannot run on the very server that is dying — because the server is already resource-starved.
 
@@ -236,14 +232,14 @@ Measured across 16 core Linux failure taxonomy scenarios:
 
 ## Test Suite
 
-**326 tests** across **41 modules** — 100% pass rate:
+**346 tests** across **44 modules** — 100% pass rate:
 
 ```bash
 pytest tests/ -v
 ```
 
 ```
-============================= 326 passed in 49.50s =============================
+============================= 346 passed in 44.42s =============================
 ```
 
 Test coverage spans: agent core, ReAct loop, causality DAGs, safety guardrails, sandbox probe, NL compiler, CLI, GUI server, voice subsystem, desktop ops, Docker ops, installer engine, multi-distro packs, autocomplete, Hinglish synonyms, hardware profiler, and more.

@@ -12,7 +12,7 @@
 | **Procfs & PSI Ingestion Throughput** | > 5,000 ops/s | **> 14,000 ops/s** | ✅ Pass |
 | **Peak Memory Footprint** | < 50MB | **< 16MB RAM** (Deterministic mode) | ✅ Pass |
 | **XAI Explanation Quality** | > 4.5/5 | **4.95 / 5.0** (Flag-by-flag grounded XAI + Rollbacks) | ✅ Pass |
-| **Test Suite Pass Rate** | 100% | **100.0%** (326/326 unit & integration tests across 41 modules) | ✅ Pass |
+| **Test Suite Pass Rate** | 100% | **100.0%** (346/346 unit & integration tests across 44 modules) | ✅ Pass |
 | **Destructive Command Leaks** | 0 | **0** (AST safety gate verified, 100% blocked) | ✅ Pass |
 | **Rollback Command Accuracy** | > 95% | **100.0%** (Verified state inversion) | ✅ Pass |
 
