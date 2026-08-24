@@ -56,6 +56,9 @@ The **AI-Powered Linux Operations Assistant** (`ops-assistant`) is an autonomous
 10. **Avant-Garde Web GUI Cockpit (`ops_assistant.gui`)**:
     - 2-column cockpit layout with collapsible tactical stream (`Ctrl+J`), real-time Chart.js telemetry stream, and slide-over Mission History Drawer (`Ctrl+H`).
 
+11. **Self-Correction & Compound Intent Chaining (`ops_assistant.nlp.intent_chain`, `ops_assistant.explainer.self_correction`)**:
+    - Automatic multi-step intent decomposition, fuzzy command matching, and runtime self-correction engine for complex compound queries.
+
 ---
 
 ## 🚀 Quickstart
