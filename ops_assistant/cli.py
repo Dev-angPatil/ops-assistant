@@ -1732,10 +1732,8 @@ def render_action_proposal(
 
     if HAS_RICH and console:
         console.print(f"[bold cyan]▶ Executing:[/bold cyan] [yellow]{cmd}[/yellow]")
-    else:
-        print(f"▶ Executing: {cmd}")
-
-    res = executor.execute(cmd, rollback_cmd=rollback)
+    is_tty = sys.stdin.isatty()
+    res = executor.execute(cmd, rollback_cmd=rollback, interactive=is_tty)
     rc = res.get("returncode", -1)
 
     if res.get("stdout"):
@@ -2017,9 +2015,14 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
             if not query:
                 continue
 
-            # Expand colon shortcuts to full NL before routing
-            _q = query
-            _ql = query.lower()
+            # Strip leading binary invocation or quotes if user typed 'ops-assistant "..."' inside REPL
+            _q = query.strip()
+            if _q.startswith("ops-assistant ") or _q.startswith("ops_assistant "):
+                _q = _q.split(" ", 1)[1].strip()
+            if (_q.startswith('"') and _q.endswith('"')) or (_q.startswith("'") and _q.endswith("'")):
+                _q = _q[1:-1].strip()
+
+            _ql = _q.lower()
 
             if _ql in (":voice", ":mic", "/voice", "/mic", "v", "mic"):
                 _cprint("[bold cyan]🎙️  Listening to microphone...[/bold cyan] [dim](Speak your command, auto-stops on silence)[/dim]", "🎙️  Listening to microphone...")

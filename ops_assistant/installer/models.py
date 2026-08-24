@@ -87,7 +87,7 @@ class InstallStep:
     rollback_command: Optional[str] = None
     working_dir: Optional[str] = None
     environment: Dict[str, str] = field(default_factory=dict)
-    timeout_seconds: int = 300
+    timeout_seconds: int = 600
 
     def to_dict(self) -> Dict[str, Any]:
         return {

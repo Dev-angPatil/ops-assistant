@@ -7,7 +7,7 @@ from ops_assistant.tools.safety import CommandSafetyValidator
 from ops_assistant.models import SafetyLevel
 
 class SafeExecutor:
-    def __init__(self, default_timeout_sec: int = 10):
+    def __init__(self, default_timeout_sec: int = 600):
         self.validator = CommandSafetyValidator()
         self.default_timeout_sec = default_timeout_sec
         self.history: List[Dict[str, Any]] = []
@@ -17,9 +17,11 @@ class SafeExecutor:
         command_str: str,
         dry_run: bool = False,
         allow_destructive: bool = False,
-        rollback_cmd: Optional[str] = None
+        rollback_cmd: Optional[str] = None,
+        timeout_sec: Optional[int] = None,
+        interactive: bool = False
     ) -> Dict[str, Any]:
-        """Executes a command safely with output capture."""
+        """Executes a command safely with output capture or interactive TTY passthrough."""
         safety_level, risk_score, reason = self.validator.evaluate_safety(command_str)
 
         if safety_level == SafetyLevel.DESTRUCTIVE and not allow_destructive:
@@ -106,13 +108,72 @@ class SafeExecutor:
             except Exception:
                 pass
 
+        # Package manager & heavy build commands get an extended 10-minute timeout
+        pkg_tools = ("pacman", "yay", "paru", "apt", "dnf", "zypper", "flatpak", "snap", "pip", "npm", "cargo", "docker", "git", "makepkg", "mvn", "gradle")
+        cmd_lower_words = set(command_str.lower().replace(";", " ").replace("&", " ").split())
+        is_pkg_or_heavy = any(tool in cmd_lower_words for tool in pkg_tools)
+        eff_timeout = timeout_sec or (600 if is_pkg_or_heavy else max(self.default_timeout_sec, 60))
+
+        if interactive:
+            try:
+                sub_res = subprocess.run(
+                    cmd_to_run,
+                    shell=True,
+                    timeout=eff_timeout
+                )
+                elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+                res = {
+                    "command": command_str,
+                    "executed": True,
+                    "dry_run": False,
+                    "safety_level": safety_level.value,
+                    "risk_score": risk_score,
+                    "returncode": sub_res.returncode,
+                    "stdout": "",
+                    "stderr": "" if sub_res.returncode == 0 else f"Process exited with code {sub_res.returncode}",
+                    "elapsed_ms": round(elapsed_ms, 2),
+                    "rollback_command": rollback_cmd
+                }
+                self.history.append(res)
+                return res
+            except subprocess.TimeoutExpired:
+                res = {
+                    "command": command_str,
+                    "executed": False,
+                    "dry_run": False,
+                    "safety_level": safety_level.value,
+                    "risk_score": risk_score,
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": f"Command timed out after {eff_timeout} seconds.",
+                    "elapsed_ms": eff_timeout * 1000.0,
+                    "rollback_command": rollback_cmd
+                }
+                self.history.append(res)
+                return res
+            except Exception as e:
+                res = {
+                    "command": command_str,
+                    "executed": False,
+                    "dry_run": False,
+                    "safety_level": safety_level.value,
+                    "risk_score": risk_score,
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": str(e),
+                    "elapsed_ms": 0.0,
+                    "rollback_command": rollback_cmd
+                }
+                self.history.append(res)
+                return res
+
         try:
             sub_res = subprocess.run(
                 cmd_to_run,
                 shell=True,
                 capture_output=True,
                 text=True,
-                timeout=self.default_timeout_sec
+                timeout=eff_timeout
             )
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             res = {
@@ -138,8 +199,8 @@ class SafeExecutor:
                 "risk_score": risk_score,
                 "returncode": -1,
                 "stdout": "",
-                "stderr": f"Command timed out after {self.default_timeout_sec} seconds.",
-                "elapsed_ms": self.default_timeout_sec * 1000.0,
+                "stderr": f"Command timed out after {eff_timeout} seconds.",
+                "elapsed_ms": eff_timeout * 1000.0,
                 "rollback_command": rollback_cmd
             }
             self.history.append(res)
