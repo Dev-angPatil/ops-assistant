@@ -10,6 +10,63 @@ from typing import Dict, Any, List, Optional, Tuple, Union
 from ops_assistant.models import SafetyLevel
 
 
+def _parse_llm_json(raw: Optional[Union[str, Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+    """Robustly extracts and parses JSON objects from raw LLM responses (markdown code blocks, regex outer braces, or plain text)."""
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return None
+
+    cleaned = raw.strip()
+    if not cleaned:
+        return None
+
+    # 1. Direct JSON parse
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    # 2. Extract from markdown code fence ```json ... ```
+    fence_m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+    if fence_m:
+        try:
+            data = json.loads(fence_m.group(1).strip())
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    # 3. Match outer { ... }
+    brace_m = re.search(r"\{[\s\S]*\}", cleaned)
+    if brace_m:
+        try:
+            data = json.loads(brace_m.group(0))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    # 4. Fallback if model output was a raw shell command string without JSON formatting
+    stripped = cleaned.strip("`").strip()
+    if stripped and not stripped.startswith("{") and len(stripped.splitlines()) <= 3:
+        tokens = stripped.split()
+        if tokens and not any(tokens[0].lower().startswith(w) for w in ("here", "i ", "you ", "to ", "sure")):
+            return {
+                "command": stripped,
+                "summary": f"Execute `{stripped}`",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.30,
+                "rollback_command": None
+            }
+
+    return None
+
+
 class LLMProvider:
     """Base class for pluggable LLM inference backends with tool-calling capabilities."""
 
@@ -135,18 +192,7 @@ class GeminiProvider(LLMProvider):
             "}"
         )
         res = self._call_gemini_api(prompt, response_json=True)
-        if not res:
-            return None
-        try:
-            return json.loads(res)
-        except Exception:
-            m = re.search(r"\{.*\}", res, re.DOTALL)
-            if m:
-                try:
-                    return json.loads(m.group(0))
-                except Exception:
-                    pass
-        return None
+        return _parse_llm_json(res)
 
     def generate_command(self, query: str, cwd: Optional[str] = None) -> Optional[Dict[str, Any]]:
         wd = cwd or os.getcwd()
@@ -165,18 +211,7 @@ class GeminiProvider(LLMProvider):
             "}"
         )
         res = self._call_gemini_api(prompt, response_json=True)
-        if not res:
-            return None
-        try:
-            return json.loads(res)
-        except Exception:
-            m = re.search(r"\{.*\}", res, re.DOTALL)
-            if m:
-                try:
-                    return json.loads(m.group(0))
-                except Exception:
-                    pass
-        return None
+        return _parse_llm_json(res)
 
 
 class OllamaProvider(LLMProvider):
@@ -232,18 +267,27 @@ class OllamaProvider(LLMProvider):
             "Respond strictly in JSON format with keys: symptom, root_cause, rationale, proposed_commands (list of [cmd, safety, risk, rationale]), confidence."
         )
         raw = self.generate_raw(prompt)
-        if not raw:
-            return None
-        try:
-            return json.loads(raw)
-        except Exception:
-            m = re.search(r"\{.*\}", raw, re.DOTALL)
-            if m:
-                try:
-                    return json.loads(m.group(0))
-                except Exception:
-                    pass
-        return None
+        return _parse_llm_json(raw)
+
+    def generate_command(self, query: str, cwd: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        wd = cwd or os.getcwd()
+        user_home = os.path.expanduser("~")
+        prompt = (
+            "You are an expert Linux System Administrator AI. Translate the user natural language request into a single Linux shell command.\n"
+            f"User Request: {query}\n"
+            f"Current Directory: {wd}\n"
+            f"User Home: {user_home}\n"
+            "Respond strictly in valid JSON format with keys:\n"
+            "{\n"
+            '  "command": "<exact shell command>",\n'
+            '  "summary": "<plain English explanation>",\n'
+            '  "safety_level": "<READ_ONLY|MODIFYING|HIGH_RISK|DESTRUCTIVE>",\n'
+            '  "risk_score": <float from 0.05 to 1.0>,\n'
+            '  "rollback_command": "<undo command or null>"\n'
+            "}"
+        )
+        raw = self.generate_raw(prompt)
+        return _parse_llm_json(raw)
 
 
 class LlamaCppProvider(LLMProvider):
@@ -318,6 +362,32 @@ class LlamaCppProvider(LLMProvider):
         except Exception:
             return None
 
+    def generate_command(self, query: str, cwd: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Synthesize exact shell command from natural language using the local GGUF model."""
+        wd = cwd or os.getcwd()
+        user_home = os.path.expanduser("~")
+        prompt = (
+            "<|im_start|>system\n"
+            "You are an expert Linux System Administrator AI & Command Copilot. Translate the user request into a single exact Linux shell command.\n"
+            f"Current Directory: {wd}\n"
+            f"User Home: {user_home}\n"
+            "Respond strictly in valid JSON format with keys:\n"
+            "{\n"
+            '  "command": "<exact single shell command>",\n'
+            '  "summary": "<plain English explanation>",\n'
+            '  "safety_level": "<READ_ONLY|MODIFYING|HIGH_RISK|DESTRUCTIVE>",\n'
+            '  "risk_score": <float from 0.05 to 1.0>,\n'
+            '  "rollback_command": "<undo command or null>"\n'
+            "}\n"
+            "<|im_end|>\n"
+            "<|im_start|>user\n"
+            f"{query}\n"
+            "<|im_end|>\n"
+            "<|im_start|>assistant\n"
+        )
+        raw = self.generate_raw(prompt, max_tokens=256)
+        return _parse_llm_json(raw)
+
     def synthesize_diagnosis(self, query: str, context: Dict[str, Any], observations: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         distro_guide = (context.get("distro_prompt_context") or "").strip()
         distro_sec = f"\nDistribution Rules:\n{distro_guide}\n" if distro_guide else f"Distro: {context.get('distro_name', 'Linux')}\n"
@@ -339,18 +409,7 @@ class LlamaCppProvider(LLMProvider):
             "<|im_start|>assistant\n"
         )
         raw = self.generate_raw(prompt)
-        if not raw:
-            return None
-        try:
-            return json.loads(raw)
-        except Exception:
-            m = re.search(r"\{.*\}", raw, re.DOTALL)
-            if m:
-                try:
-                    return json.loads(m.group(0))
-                except Exception:
-                    pass
-        return None
+        return _parse_llm_json(raw)
 
     def generate_diagnosis(self, query: str, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return self.synthesize_diagnosis(query, context, observations=[])

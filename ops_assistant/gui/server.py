@@ -29,6 +29,7 @@ from ops_assistant.tools.safety import CommandSafetyValidator
 from ops_assistant.tools.sandbox_probe import EphemeralSandboxProbe
 from ops_assistant.tools import desktop_ops, download_ops, storage_ops, process_ops, network_ops, log_ops
 from ops_assistant.models import SafetyLevel
+from ops_assistant.explainer.xai import ExecutionOutcomeExplainer
 
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -354,6 +355,23 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             self._send_json(probe.get_status())
             return
 
+        elif path == "/api/voice/status":
+            from ops_assistant.voice.recorder import VoiceRecorder
+            rec = VoiceRecorder()
+            avail, details = rec.is_microphone_available()
+            self._send_json({
+                "success": True,
+                "available": avail,
+                "details": details,
+                "supported_languages": [
+                    {"code": "en-IN", "label": "English (India)"},
+                    {"code": "hi-IN", "label": "Hinglish / Hindi"},
+                    {"code": "en-US", "label": "English (US)"},
+                    {"code": "en-GB", "label": "English (UK)"}
+                ]
+            })
+            return
+
         elif path.startswith("/api/command/stream/"):
             session_id = path[len("/api/command/stream/"):]
             self._handle_command_stream_sse(session_id)
@@ -365,6 +383,49 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        # Voice Transcription Endpoint
+        if path == "/api/voice/transcribe":
+            content_type = self.headers.get("Content-Type", "")
+            content_len = int(self.headers.get("Content-Length", 0))
+            from ops_assistant.voice.transcriber import SpeechTranscriber, PhoneticNormalizer
+            transcriber = SpeechTranscriber()
+
+            if "application/json" in content_type:
+                body = self._read_json()
+                raw_text = body.get("text", "").strip()
+                lang = body.get("language", "en-IN")
+                if raw_text:
+                    clean = PhoneticNormalizer.normalize(raw_text)
+                    self._send_json({
+                        "success": True,
+                        "text": clean,
+                        "raw_text": raw_text,
+                        "confidence": 0.95,
+                        "engine": "web_speech_normalized"
+                    })
+                    return
+                elif "audio_base64" in body:
+                    import base64
+                    try:
+                        wav_data = base64.b64decode(body["audio_base64"])
+                        res = transcriber.transcribe_wav_bytes(wav_data, language=lang)
+                        self._send_json(res)
+                        return
+                    except Exception as e:
+                        self._send_error(f"Base64 audio decode failed: {e}")
+                        return
+
+            # Raw binary WAV upload
+            if content_len > 0:
+                raw_audio = self.rfile.read(content_len)
+                res = transcriber.transcribe_wav_bytes(raw_audio)
+                self._send_json(res)
+                return
+
+            self._send_error("No audio data or text provided for transcription.")
+            return
+
         body = self._read_json()
 
         # 1. AI Agent Interactive Chat & Command Dispatch
@@ -518,6 +579,18 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
 
             res = self.executor.execute(command, dry_run=dry_run)
             returncode = res.get("returncode", -1)
+
+            # Generate comprehensive natural language outcome and system changes explanation
+            outcome = ExecutionOutcomeExplainer.explain_outcome(
+                command=command,
+                returncode=returncode,
+                stdout=res.get("stdout", ""),
+                stderr=res.get("stderr", ""),
+                query=body.get("query"),
+                elapsed_ms=res.get("elapsed_ms", 0.0),
+                llm_provider=getattr(self.agent, "llm_provider", None) if self.agent else None
+            )
+
             self._send_json({
                 "success": returncode == 0,
                 "returncode": returncode,
@@ -529,9 +602,16 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                 "risk_score": val.risk_score,
                 "dry_run": dry_run,
                 "rollback_command": val.suggested_rollback,
-                "sandbox_probe": probe_result.to_dict()
+                "sandbox_probe": probe_result.to_dict(),
+                "explanation_paragraph": outcome.get("explanation_paragraph", ""),
+                "natural_explanation": outcome.get("natural_explanation", ""),
+                "ai_explanation": outcome.get("ai_elaboration") or outcome.get("natural_explanation", ""),
+                "changes_made": outcome.get("changes_made", []),
+                "changes_summary": outcome.get("changes_summary", ""),
+                "failure_analysis": outcome.get("failure_analysis")
             })
             return
+
 
         # 8b. Dedicated Ephemeral Sandbox Probe Verification Endpoint
         elif path == "/api/sandbox/verify":
@@ -966,6 +1046,16 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                 if proc.returncode != 0:
                     diag = self.agent.explain_error(cmd, proc.returncode, stderr=proc.stderr, stdout=proc.stdout)
 
+                outcome = ExecutionOutcomeExplainer.explain_outcome(
+                    command=cmd,
+                    returncode=proc.returncode,
+                    stdout=proc.stdout,
+                    stderr=proc.stderr,
+                    query=step.get("description") or sess.get("text"),
+                    elapsed_ms=elapsed_ms,
+                    llm_provider=getattr(self.agent, "llm_provider", None) if self.agent else None
+                )
+
                 # Persist to database
                 hdb.log_command(
                     session_id=session_id,
@@ -987,8 +1077,15 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                     "status": status,
                     "exit_code": proc.returncode,
                     "output": output[:2000],
-                    "error_diagnosis": diag
+                    "error_diagnosis": diag,
+                    "explanation_paragraph": outcome.get("explanation_paragraph", ""),
+                    "natural_explanation": outcome.get("natural_explanation", ""),
+                    "ai_explanation": outcome.get("ai_elaboration") or outcome.get("natural_explanation", ""),
+                    "changes_made": outcome.get("changes_made", []),
+                    "changes_summary": outcome.get("changes_summary", ""),
+                    "failure_analysis": outcome.get("failure_analysis")
                 })
+
             except _sp.TimeoutExpired:
                 emit("plan_step", {**step, "status": "failed", "exit_code": -1, "output": "Command timed out after 30 s"})
             except Exception as exc:

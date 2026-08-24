@@ -155,5 +155,23 @@ class TestDesktopOps(unittest.TestCase):
         self.assertIn("upower", c_bat["command"])
 
 
+    def test_find_target_folder(self):
+        sub_dsa = os.path.join(self.test_dir, "My_DSA_Project")
+        os.makedirs(sub_dsa, exist_ok=True)
+        with patch("pathlib.Path.home", return_value=desktop_ops.Path(self.test_dir)):
+            found = desktop_ops.find_target_folder("dsa")
+            self.assertIsNotNone(found)
+            self.assertTrue(os.path.samefile(str(found), sub_dsa))
+
+    def test_find_target_file(self):
+        sub_file = os.path.join(self.test_dir, "notes_report.pdf")
+        with open(sub_file, "w") as f:
+            f.write("pdf data")
+        with patch("pathlib.Path.home", return_value=desktop_ops.Path(self.test_dir)):
+            found = desktop_ops.find_target_file("notes_report.pdf")
+            self.assertIsNotNone(found)
+            self.assertTrue(os.path.samefile(str(found), sub_file))
+
+
 if __name__ == "__main__":
     unittest.main()

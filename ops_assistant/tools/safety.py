@@ -68,7 +68,8 @@ class CommandSafetyValidator:
         "diff", "cmp", "file", "id", "whoami", "w", "last", "lsblk", "lscpu",
         "lsmod", "sysctl -a", "sysctl -n", "sysctl -p", "resolvectl status",
         "systemd-resolve --status", "hostnamectl", "loginctl", "awall list",
-        "apk info", "pacman -Q", "rpm -qa", "dpkg -l", "apt list", "echo", "printf"
+        "apk info", "pacman -Q", "rpm -qa", "dpkg -l", "apt list", "echo", "printf",
+        "xdg-open"
     }
 
     MODIFYING_COMMANDS: Set[str] = {

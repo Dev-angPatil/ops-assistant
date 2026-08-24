@@ -39,6 +39,7 @@ from ops_assistant.db.distro_db import DistroKnowledgeBase
 from ops_assistant.tools.executor import SafeExecutor
 from ops_assistant.tools.safety import CommandSafetyValidator
 from ops_assistant.models import DiagnosticReport, SafetyLevel, LogRecord
+from ops_assistant.explainer.xai import ExecutionOutcomeExplainer, CommandExplainer, ErrorExplainer
 
 # NLP intent routing + action tool modules
 from ops_assistant.nlp.intent_router import IntentRouter, Intent, IntentType
@@ -48,6 +49,92 @@ from ops_assistant.tools import storage_ops, process_ops, network_ops, log_ops
 # -------------------------------------------------------------------------
 # Formatting and UI Helpers
 # -------------------------------------------------------------------------
+
+def render_execution_outcome(
+    outcome_or_res: Dict[str, Any],
+    query: Optional[str] = None,
+    command: Optional[str] = None,
+    agent: Optional[Any] = None
+):
+    """Renders a rich AI natural language explanation card, detailed system changes, or failure diagnosis."""
+    if not outcome_or_res:
+        return
+
+    if "is_success" in outcome_or_res and ("changes_made" in outcome_or_res or "failure_analysis" in outcome_or_res):
+        outcome = outcome_or_res
+    else:
+        cmd_str = command or outcome_or_res.get("command", "")
+        rc = outcome_or_res.get("returncode", 0)
+        stdout = str(outcome_or_res.get("stdout") or "")
+        stderr = str(outcome_or_res.get("stderr") or "")
+        elapsed = float(outcome_or_res.get("elapsed_ms", 0.0))
+        llm_prov = getattr(agent, "llm_provider", None) if agent else None
+        outcome = ExecutionOutcomeExplainer.explain_outcome(
+            command=cmd_str,
+            returncode=rc,
+            stdout=stdout,
+            stderr=stderr,
+            query=query or outcome_or_res.get("query"),
+            elapsed_ms=elapsed,
+            intent=outcome_or_res.get("intent"),
+            llm_provider=llm_prov
+        )
+
+    is_success = outcome.get("is_success", True)
+    nat_exp = outcome.get("ai_elaboration") or outcome.get("natural_explanation") or outcome.get("explanation_paragraph", "")
+    changes = outcome.get("changes_made", [])
+    failure = outcome.get("failure_analysis")
+
+    if is_success:
+        if HAS_RICH and console:
+            content = f"[italic white]{nat_exp}[/italic white]\n"
+            if changes:
+                content += "\n[bold green]📊 System Changes Made:[/bold green]\n"
+                for c in changes:
+                    content += f"  [green]✓[/green] {c}\n"
+            console.print(Panel(
+                content.rstrip(),
+                title="[bold green]🤖 AI Natural Language Explanation & System Changes[/bold green]",
+                border_style="green"
+            ))
+        else:
+            print("\n" + "-" * 60)
+            print("🤖 AI NATURAL LANGUAGE EXPLANATION:")
+            print(f"  {nat_exp}")
+            if changes:
+                print("\n📊 SYSTEM CHANGES MADE:")
+                for c in changes:
+                    print(f"  ✓ {c}")
+            print("-" * 60 + "\n")
+    else:
+        err_cls = failure.get("error_class", "EXECUTION_ERROR") if failure else "ERROR"
+        diag = failure.get("diagnosis", "Command encountered an execution failure.") if failure else "Execution error."
+        recom = failure.get("recommendation", "Review command arguments and system permissions.") if failure else "Check logs."
+        rc = outcome.get("returncode", -1)
+        code_desc = failure.get("exit_code_description", "") if failure else ""
+
+        if HAS_RICH and console:
+            content = (
+                f"[bold red]Error Class:[/bold red] [white on red] {err_cls} [/white on red] [dim](Exit Code {rc})[/dim]\n"
+                f"[bold yellow]Diagnosis:[/bold yellow] {diag}\n\n"
+                f"[bold green]💡 AI Fix Recommendation:[/bold green] [bold cyan]{recom}[/bold cyan]"
+            )
+            if code_desc:
+                content += f"\n[dim]Code Meaning: {code_desc}[/dim]"
+            console.print(Panel(
+                content,
+                title="[bold red]❌ Execution Failure Analysis & AI Remediation[/bold red]",
+                border_style="red"
+            ))
+        else:
+            print("\n" + "=" * 60)
+            print(f"❌ EXECUTION FAILURE ANALYSIS ({err_cls} - Code {rc})")
+            print(f"  Diagnosis:    {diag}")
+            print(f"  💡 Suggested Fix: {recom}")
+            if code_desc:
+                print(f"  Code Meaning: {code_desc}")
+            print("=" * 60 + "\n")
+
 
 def format_safety_badge(level: SafetyLevel) -> str:
     """Returns a color-formatted badge string for a given SafetyLevel."""
@@ -60,6 +147,7 @@ def format_safety_badge(level: SafetyLevel) -> str:
     elif level == SafetyLevel.DESTRUCTIVE:
         return "[bold white on red] DESTRUCTIVE [/bold white on red]" if HAS_RICH else "[DESTRUCTIVE]"
     return str(level.value)
+
 
 
 def render_banner(distro_name: str = "Linux"):
@@ -1340,6 +1428,9 @@ def _execute_with_safety_prompt(target: Any, executor: SafeExecutor, idx: int = 
         if rollback_cmd and res.get("executed"):
             print(f"  ↩ Registered rollback: {rollback_cmd}")
 
+    render_execution_outcome(res, command=cmd_str)
+
+
 
 def export_report(report: DiagnosticReport, export_path: str, fmt: str = "json"):
     """Exports diagnostic report to file with comprehensive error handling."""
@@ -1446,6 +1537,19 @@ def render_action_proposal(
     distro_name: str = "Linux"
 ) -> bool:
     """Renders a natural language command translation card with explanation, flag breakdown, and approval prompt."""
+    if action_res.get("is_ambiguous"):
+        prompt = action_res.get("ambiguity_prompt") or "Ambiguity detected in request."
+        candidates = action_res.get("candidates", [])
+        if HAS_RICH and console:
+            console.print(Panel(f"[bold yellow]❓ {prompt}[/bold yellow]", title="Ambiguity Resolution Required", border_style="yellow"))
+            for idx, c in enumerate(candidates, 1):
+                console.print(f"  [bold cyan][{idx}][/bold cyan] {c}")
+        else:
+            print(f"\n❓ {prompt}")
+            for idx, c in enumerate(candidates, 1):
+                print(f"  [{idx}] {c}")
+        return False
+
     cmd = action_res.get("command", "").strip()
     desc = action_res.get("command_description") or action_res.get("summary", "")
     safety_str = action_res.get("safety_level", "MODIFYING")
@@ -1556,7 +1660,9 @@ def render_action_proposal(
         else:
             print(f"❌ Command exited with code {rc}.")
 
+    render_execution_outcome(res, query=action_res.get("query"), command=cmd)
     return rc == 0
+
 
 
 def print_repl_help():
@@ -1737,8 +1843,8 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
             print(res["stdout"])
         if res.get("stderr") and rc != 0:
             print(res["stderr"])
-        if rc != 0:
-            _cprint(f"[red]Exit code: {rc}[/red]", f"Exit code: {rc}")
+        render_execution_outcome(res, command=cmd, agent=agent)
+
 
     while True:
         try:
@@ -1749,7 +1855,47 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
             # Expand colon shortcuts to full NL before routing
             _q = query
             _ql = query.lower()
-            if _ql in (":disk", ":storage"):
+
+            if _ql in (":voice", ":mic", "/voice", "/mic", "v", "mic"):
+                _cprint("[bold cyan]🎙️  Listening to microphone...[/bold cyan] [dim](Speak your command, auto-stops on silence)[/dim]", "🎙️  Listening to microphone...")
+                from ops_assistant.voice.recorder import VoiceRecorder
+                from ops_assistant.voice.transcriber import SpeechTranscriber
+                import threading
+                rec = VoiceRecorder()
+                avail, details = rec.is_microphone_available()
+                if not avail:
+                    _cprint(f"[yellow]🎙️  Microphone Error: {details}[/yellow]", f"Microphone Error: {details}")
+                    continue
+                audio_holder = [b""]
+                done_ev = threading.Event()
+                rec.start_recording(on_finished=lambda wav: (audio_holder.__setitem__(0, wav), done_ev.set()), auto_stop_on_silence=True)
+                try:
+                    for _ in range(200):
+                        if done_ev.is_set():
+                            break
+                        time.sleep(0.05)
+                except KeyboardInterrupt:
+                    pass
+                finally:
+                    if rec.is_recording:
+                        audio_holder[0] = rec.stop_recording()
+                wav = audio_holder[0]
+                if not wav:
+                    print("No audio captured.")
+                    continue
+                stt = SpeechTranscriber().transcribe_wav_bytes(wav)
+                if not stt.get("success") or not stt.get("text"):
+                    _cprint(f"[yellow]🎙️  {stt.get('error', 'Could not transcribe speech.')}[/yellow]", "Could not transcribe speech.")
+                    continue
+                spoken = stt["text"]
+                _cprint(f"[bold green]🎙️  Transcribed:[/bold green] [bold white]{spoken}[/bold white]", f"🎙️  Transcribed: {spoken}")
+                try:
+                    confirm_prompt = input("Press Enter to execute or type correction: ").strip()
+                    _q = confirm_prompt if confirm_prompt else spoken
+                except (KeyboardInterrupt, EOFError):
+                    continue
+
+            elif _ql in (":disk", ":storage"):
                 _q = "how much space am I using"
             elif _ql == ":large":
                 _q = "find large files"
@@ -2411,6 +2557,7 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
                     for k, v in act_res["output"].items():
                         if k not in ("error", "success") and not isinstance(v, (dict, list)):
                             print(f"  {k:25}: {v}")
+                render_execution_outcome(act_res, query=query, agent=agent)
 
             # -----------------------------------------------------------------
             # Docker & Containers
@@ -2426,12 +2573,14 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
                         act_res = agent.execute_agent_action(query, execute=True)
                         _cprint(f"[green]✓ {act_res.get('summary', 'Executed successfully.')}[/green]",
                                 f"✓ {act_res.get('summary', 'Executed successfully.')}")
+                        render_execution_outcome(act_res, query=query, command=cmd_to_run, agent=agent)
                     else:
                         print("Cancelled.")
                 else:
                     act_res = agent.execute_agent_action(query, execute=True)
                     _cprint(f"[green]✓ {act_res.get('summary', 'Done.')}[/green]",
                             f"✓ {act_res.get('summary', 'Done.')}")
+                    render_execution_outcome(act_res, query=query, agent=agent)
 
             # -----------------------------------------------------------------
             # Backup & Restore
@@ -2443,6 +2592,7 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
                 if backups:
                     for b in backups:
                         print(f"  {b.get('filename'):35} {b.get('size_human', ''):>10}  {b.get('created_human', '')}")
+                render_execution_outcome(act_res, query=query, agent=agent)
 
             elif intent.type in (IntentType.BACKUP_CREATE, IntentType.BACKUP_RESTORE):
                 act_plan = agent.execute_agent_action(query, execute=False)
@@ -2452,11 +2602,13 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
                         act_res = agent.execute_agent_action(query, execute=True)
                         _cprint(f"[green]✓ {act_res.get('summary', 'Backup operation completed.')}[/green]",
                                 f"✓ {act_res.get('summary', 'Backup operation completed.')}")
+                        render_execution_outcome(act_res, query=query, command=cmd_to_run, agent=agent)
                     else:
                         print("Cancelled.")
                 else:
                     act_res = agent.execute_agent_action(query, execute=True)
                     _cprint(f"[green]✓ {act_res.get('summary')}[/green]", f"✓ {act_res.get('summary')}")
+                    render_execution_outcome(act_res, query=query, agent=agent)
 
             # -----------------------------------------------------------------
             # System Maintenance (Boot, SSD TRIM, Package Clean, Journal Vacuum, Cron Remove)
@@ -2471,11 +2623,14 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
                         act_res = agent.execute_agent_action(query, execute=True)
                         _cprint(f"[green]✓ {act_res.get('summary', 'System maintenance action completed.')}[/green]",
                                 f"✓ {act_res.get('summary', 'System maintenance action completed.')}")
+                        render_execution_outcome(act_res, query=query, command=cmd_to_run, agent=agent)
                     else:
                         print("Cancelled.")
                 else:
                     act_res = agent.execute_agent_action(query, execute=True)
                     _cprint(f"[green]✓ {act_res.get('summary')}[/green]", f"✓ {act_res.get('summary')}")
+                    render_execution_outcome(act_res, query=query, agent=agent)
+
 
             # -----------------------------------------------------------------
             # Shell passthrough
@@ -2640,6 +2795,7 @@ def main():
     parser.add_argument("--export-md", type=str, help="Export diagnostic report to Markdown file path", default=None)
     parser.add_argument("--gui", action="store_true", help="Launch interactive Web GUI Dashboard in default browser")
     parser.add_argument("--port", type=int, default=8888, help="Port for Web GUI Dashboard (default: 8888)")
+    parser.add_argument("--voice", "--mic", action="store_true", help="Record and execute a spoken natural language voice command from microphone")
     parser.add_argument("--no-browser", action="store_true", help="Do not automatically open default web browser for GUI")
 
     args = parser.parse_args()
@@ -2743,9 +2899,57 @@ def main():
             print(f"Found {len(failed)} failed unit(s):")
             for u in failed:
                 rep = agent.diagnose(f"Why is {u.unit_name} failing?", distro_override=args.distro)
-                render_diagnostic_report(rep, executor, interactive_exec=args.interactive)
+    elif args.voice:
+        from ops_assistant.voice.recorder import VoiceRecorder
+        from ops_assistant.voice.transcriber import SpeechTranscriber
+        import threading
+        rec = VoiceRecorder()
+        avail, details = rec.is_microphone_available()
+        if not avail:
+            print(f"🎙️  Microphone Error: {details}")
+            return
+        if HAS_RICH and console:
+            console.print("[bold cyan]🎙️  Listening to microphone...[/bold cyan] [dim](Speak your command, auto-stops on silence)[/dim]")
         else:
-            print("✓ No failed system units found.")
+            print("🎙️  Listening to microphone... (Speak your command, auto-stops on silence)")
+
+        audio_holder = [b""]
+        done_ev = threading.Event()
+        rec.start_recording(on_finished=lambda wav: (audio_holder.__setitem__(0, wav), done_ev.set()), auto_stop_on_silence=True)
+        try:
+            for _ in range(200):
+                if done_ev.is_set():
+                    break
+                time.sleep(0.05)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            if rec.is_recording:
+                audio_holder[0] = rec.stop_recording()
+
+        wav = audio_holder[0]
+        if not wav:
+            print("No audio captured.")
+            return
+
+        stt = SpeechTranscriber().transcribe_wav_bytes(wav)
+        if not stt.get("success") or not stt.get("text"):
+            print(f"🎙️  {stt.get('error', 'Could not transcribe speech.')}")
+            return
+
+        spoken_text = stt["text"]
+        if HAS_RICH and console:
+            console.print(Panel(f"[bold white]{spoken_text}[/bold white]", title="🎙️  Spoken Command Recognized", border_style="cyan"))
+        else:
+            print(f"\n--- 🎙️  Spoken Command Recognized ---\n{spoken_text}\n")
+
+        action_res = agent.execute_agent_action(spoken_text, execute=False, distro_override=args.distro)
+        d_info = agent.distro_detector.detect(override_family=args.distro)
+        if action_res.get("diagnostic_report"):
+            rep = agent.diagnose(spoken_text, distro_override=args.distro)
+            render_diagnostic_report(rep, executor, interactive_exec=args.interactive)
+        else:
+            render_action_proposal(action_res, executor, auto_yes=args.yes, distro_name=d_info.distro_name)
     elif args.query:
         action_res = agent.execute_agent_action(args.query, execute=False, distro_override=args.distro)
         d_info = agent.distro_detector.detect(override_family=args.distro)

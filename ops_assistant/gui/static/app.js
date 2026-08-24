@@ -1206,6 +1206,35 @@ async function submitAgentPrompt(promptText) {
 
 function renderAgentResponseCard(card, data) {
   playScifiSound('success');
+
+  if (data.is_ambiguous) {
+    let candidatePills = '';
+    if (data.candidates && data.candidates.length > 0) {
+      candidatePills = `
+        <div class="flex flex-wrap gap-2 pt-2">
+          ${data.candidates.map(c => `
+            <button type="button" onclick="submitAgentPrompt('${data.action_template ? data.action_template.replace('{choice}', c) : c}')" class="px-3.5 py-1.5 rounded-full bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30 border border-cyan-400/40 text-xs font-mono transition flex items-center space-x-1.5">
+              <span>👉 ${escapeHtml(c)}</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }
+    card.className = 'avant-card-elevated p-5 sm:p-6 space-y-3 border-amber-500/40 bg-amber-500/5';
+    card.innerHTML = `
+      <div class="space-y-3">
+        <div class="flex items-center space-x-2 text-amber-400 font-bold text-sm">
+          <i data-lucide="help-circle" class="w-4.5 h-4.5"></i>
+          <span>Ambiguity Clarification Required</span>
+        </div>
+        <div class="text-slate-100 text-sm font-sans leading-relaxed">${escapeHtml(data.ambiguity_prompt || data.summary)}</div>
+        ${candidatePills}
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
   const safetyClass = getSafetyBadgeClass(data.safety_level || 'READ_ONLY');
 
   card.className = 'avant-card-elevated p-5 sm:p-6 space-y-4';
@@ -1298,11 +1327,47 @@ function renderAgentResponseCard(card, data) {
   }
 
   let paragraphHtml = '';
-  if (data.explanation_paragraph && data.explanation_paragraph !== data.summary) {
+  const explanationText = data.ai_explanation || data.natural_explanation || data.explanation_paragraph;
+  if (explanationText && explanationText !== data.summary) {
     paragraphHtml = `
-      <div class="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/20 text-xs text-slate-200 leading-relaxed font-sans">
-        <span class="text-[10px] text-cyan-300 font-semibold uppercase block mb-1">Ops Explanation:</span>
-        ${escapeHtml(data.explanation_paragraph)}
+      <div class="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/20 text-xs text-slate-200 leading-relaxed font-sans space-y-1">
+        <div class="flex items-center space-x-1.5 font-bold text-cyan-300 text-[10px] uppercase">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          <span>AI Ops Explanation:</span>
+        </div>
+        <div>${escapeHtml(explanationText)}</div>
+      </div>
+    `;
+  }
+
+  let changesHtml = '';
+  if (data.changes_made && data.changes_made.length > 0) {
+    changesHtml = `
+      <div class="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-1.5 font-sans">
+        <div class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center space-x-1">
+          <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+          <span>System Changes Applied:</span>
+        </div>
+        <div class="space-y-1 text-xs text-emerald-200">
+          ${data.changes_made.map(c => `<div class="flex items-start space-x-1.5"><span class="text-emerald-400 font-bold">&check;</span><span>${escapeHtml(c)}</span></div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  let failureHtml = '';
+  if (data.is_success === false && data.failure_analysis) {
+    failureHtml = `
+      <div class="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 space-y-2 font-sans text-xs">
+        <div class="flex items-center space-x-1.5 text-rose-300 font-bold text-xs">
+          <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+          <span>Root Cause Diagnosis: ${escapeHtml(data.failure_analysis.error_class || 'EXECUTION_ERROR')}</span>
+        </div>
+        <div class="text-slate-200 leading-relaxed">${escapeHtml(data.failure_analysis.diagnosis || '')}</div>
+        <div class="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 leading-relaxed">
+          <span class="font-bold text-emerald-400 block text-[10px] uppercase mb-0.5">💡 AI Recommended Fix:</span>
+          ${escapeHtml(data.failure_analysis.recommendation || '')}
+        </div>
       </div>
     `;
   }
@@ -1322,6 +1387,8 @@ function renderAgentResponseCard(card, data) {
     <div class="text-xs sm:text-sm text-white font-sans font-medium leading-relaxed">${escapeHtml(data.summary || 'Analysis complete.')}</div>
     
     ${paragraphHtml}
+    ${changesHtml}
+    ${failureHtml}
     ${stepsHtml}
     ${commandSectionHtml}
     ${outputDetailsHtml}
@@ -1375,13 +1442,69 @@ async function executeCommandDirect(cmd, rollbackCmd, cardEl) {
 
     if (cardEl) {
       const resultBox = document.createElement('div');
-      resultBox.className = 'p-4 sm:p-5 rounded-2xl bg-black/70 border border-white/10 space-y-2 font-mono text-xs leading-relaxed';
+      resultBox.className = 'p-4 sm:p-5 rounded-2xl bg-black/70 border border-white/10 space-y-3 font-mono text-xs leading-relaxed';
+      
+      const explanationText = data.ai_explanation || data.natural_explanation || data.explanation_paragraph || '';
+      const changes = data.changes_made || [];
+      const failure = data.failure_analysis;
+
+      let explanationSection = '';
+      if (explanationText) {
+        explanationSection = `
+          <div class="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-xs font-sans text-slate-200 leading-relaxed space-y-1">
+            <div class="flex items-center space-x-1.5 font-bold text-cyan-300 text-[11px]">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+              <span>AI Execution Explanation:</span>
+            </div>
+            <div>${escapeHtml(explanationText)}</div>
+          </div>
+        `;
+      }
+
+      let changesSection = '';
+      if (changes.length > 0) {
+        changesSection = `
+          <div class="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-1.5">
+            <div class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center space-x-1">
+              <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+              <span>System Changes Applied:</span>
+            </div>
+            <div class="space-y-1 text-xs text-emerald-200 font-sans">
+              ${changes.map(c => `<div class="flex items-start space-x-1.5"><span class="text-emerald-400 font-bold">&check;</span><span>${escapeHtml(c)}</span></div>`).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      let failureSection = '';
+      if (!data.success && failure) {
+        failureSection = `
+          <div class="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 space-y-2 font-sans text-xs">
+            <div class="flex items-center space-x-1.5 text-rose-300 font-bold text-xs">
+              <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+              <span>Root Cause Diagnosis: ${escapeHtml(failure.error_class || 'EXECUTION_ERROR')}</span>
+            </div>
+            <div class="text-slate-200 leading-relaxed">${escapeHtml(failure.diagnosis || 'Execution failed.')}</div>
+            <div class="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 leading-relaxed">
+              <span class="font-bold text-emerald-400 block text-[10px] uppercase mb-0.5">💡 AI Recommended Fix:</span>
+              ${escapeHtml(failure.recommendation || 'Verify command syntax and permissions.')}
+            </div>
+          </div>
+        `;
+      }
+
       resultBox.innerHTML = `
         <div class="flex items-center justify-between text-[10px] text-slate-500">
-          <span class="font-bold text-white">&check; Execution Complete</span>
-          <span>Exit: ${data.returncode} | Latency: ${data.latency_ms || 0}ms</span>
+          <span class="font-bold ${data.success ? 'text-emerald-400' : 'text-rose-400'} flex items-center space-x-1">
+            <i data-lucide="${data.success ? 'check-circle' : 'x-circle'}" class="w-3.5 h-3.5"></i>
+            <span>${data.success ? 'Execution Succeeded' : 'Execution Failed'} (Exit: ${data.returncode})</span>
+          </span>
+          <span>Latency: ${data.latency_ms || 0}ms</span>
         </div>
-        <pre class="text-[11px] text-slate-200 overflow-x-auto max-h-36 whitespace-pre-wrap">${escapeHtml(data.stdout || data.stderr || '(No output returned)')}</pre>
+        ${explanationSection}
+        ${changesSection}
+        ${failureSection}
+        <pre class="text-[11px] ${data.success ? 'text-slate-200' : 'text-rose-200'} overflow-x-auto max-h-36 whitespace-pre-wrap">${escapeHtml(data.stdout || data.stderr || '(No terminal output returned)')}</pre>
         ${(rollbackCmd || data.rollback_command) ? `
           <div class="pt-2 flex justify-end">
             <button onclick="executeRollback('${escapeHtml(rollbackCmd || data.rollback_command)}')" class="btn-editorial-secondary !py-1 !px-2.5 text-[10px]">

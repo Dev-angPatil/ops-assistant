@@ -14,18 +14,181 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
+import re
+
+
 def _expand_path(raw_path: str) -> Path:
     """Expand ~ and environment variables, resolve path."""
     return Path(os.path.expandvars(os.path.expanduser(raw_path))).resolve()
 
 
+def find_target_folder(target: str, max_depth: int = 5) -> Optional[Path]:
+    """
+    Intelligently search the filesystem (cwd, ~, Projects, Documents, Desktop, etc.)
+    for a matching directory name.
+    """
+    clean = target.strip().strip("'\"").strip()
+    if not clean:
+        return None
+
+    # Strip conversational prefixes
+    clean_name = re.sub(r"^(?:my\s+|the\s+)", "", clean, flags=re.IGNORECASE)
+    clean_name = re.sub(r"^(?:folder\s+|dir\s+|directory\s+)", "", clean_name, flags=re.IGNORECASE)
+    clean_name = re.sub(r"\s+(?:folder|dir|directory)$", "", clean_name, flags=re.IGNORECASE).strip()
+
+    # 1. Check direct path if path-like
+    try:
+        p = _expand_path(clean)
+        if p.is_dir():
+            return p
+        p_clean = _expand_path(clean_name)
+        if p_clean.is_dir():
+            return p_clean
+    except Exception:
+        pass
+
+    target_lower = clean_name.lower()
+    home = Path.home()
+    cwd = Path.cwd()
+
+    priority_roots = [
+        cwd,
+        home / "Projects",
+        home / "Documents",
+        home / "Desktop",
+        home / "Downloads",
+        home / "code",
+        home / "workspace",
+        home / "dev",
+        home / "src",
+        home
+    ]
+
+    visited = set()
+    ignored_dir_names = {
+        "node_modules", ".git", ".cache", ".local", ".cargo", ".rustup",
+        ".venv", "venv", ".env", "env", "__pycache__", "dist", "build", "target"
+    }
+
+    # Pass 1: exact case-insensitive match
+    for root in priority_roots:
+        if not root.exists() or str(root) in visited:
+            continue
+        visited.add(str(root))
+        try:
+            for dirpath, dirnames, _ in os.walk(root):
+                dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ignored_dir_names]
+                try:
+                    rel = Path(dirpath).relative_to(root)
+                    if len(rel.parts) > max_depth:
+                        dirnames.clear()
+                        continue
+                except Exception:
+                    pass
+
+                for d in dirnames:
+                    if d.lower() == target_lower:
+                        return Path(dirpath) / d
+        except Exception:
+            pass
+
+    # Pass 2: substring match (e.g. "dsa" in "DSA-Leetcode" or "my_dsa")
+    visited.clear()
+    for root in priority_roots:
+        if not root.exists() or str(root) in visited:
+            continue
+        visited.add(str(root))
+        try:
+            for dirpath, dirnames, _ in os.walk(root):
+                dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ignored_dir_names]
+                try:
+                    rel = Path(dirpath).relative_to(root)
+                    if len(rel.parts) > max_depth:
+                        dirnames.clear()
+                        continue
+                except Exception:
+                    pass
+
+                for d in dirnames:
+                    if target_lower in d.lower():
+                        return Path(dirpath) / d
+        except Exception:
+            pass
+
+    return None
+
+
+def find_target_file(target: str, max_depth: int = 5) -> Optional[Path]:
+    """
+    Intelligently search the filesystem for a matching file name.
+    """
+    clean = target.strip().strip("'\"").strip()
+    if not clean:
+        return None
+
+    try:
+        p = _expand_path(clean)
+        if p.is_file():
+            return p
+    except Exception:
+        pass
+
+    target_lower = clean.lower()
+    home = Path.home()
+    cwd = Path.cwd()
+
+    priority_roots = [
+        cwd,
+        home / "Projects",
+        home / "Documents",
+        home / "Desktop",
+        home / "Downloads",
+        home / "code",
+        home / "workspace",
+        home
+    ]
+
+    visited = set()
+    ignored_dir_names = {
+        "node_modules", ".git", ".cache", ".local", ".cargo", ".rustup",
+        ".venv", "venv", ".env", "env", "__pycache__", "dist", "build", "target"
+    }
+
+    for root in priority_roots:
+        if not root.exists() or str(root) in visited:
+            continue
+        visited.add(str(root))
+        try:
+            for dirpath, dirnames, filenames in os.walk(root):
+                dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ignored_dir_names]
+                try:
+                    rel = Path(dirpath).relative_to(root)
+                    if len(rel.parts) > max_depth:
+                        dirnames.clear()
+                        continue
+                except Exception:
+                    pass
+
+                for f in filenames:
+                    if f.lower() == target_lower or target_lower in f.lower():
+                        return Path(dirpath) / f
+        except Exception:
+            pass
+
+    return None
+
+
 def open_folder(path: str = "~", create_if_missing: bool = False) -> Dict[str, Any]:
     """
-    Open a directory in the default system file manager (e.g. Nautilus, Dolphin, Thunar).
+    Open a directory in the default system file manager. If path does not exist directly,
+    scans filesystem for matching folder name.
     """
     p = _expand_path(path)
-    if not p.exists():
-        if create_if_missing:
+    if not p.exists() or not p.is_dir():
+        discovered = find_target_folder(path)
+        if discovered and discovered.is_dir():
+            p = discovered
+        elif create_if_missing:
             try:
                 p.mkdir(parents=True, exist_ok=True)
             except Exception:
@@ -34,7 +197,7 @@ def open_folder(path: str = "~", create_if_missing: bool = False) -> Dict[str, A
             return {
                 "success": False,
                 "path": str(p),
-                "error": f"Directory does not exist: {p}",
+                "error": f"Directory '{path}' not found across your computer (scanned home, projects, documents, desktop).",
                 "action": "open_folder"
             }
     elif not p.is_dir():
@@ -93,13 +256,17 @@ def open_file(path: str) -> Dict[str, Any]:
     Open a file using the system default application or editor.
     """
     p = _expand_path(path)
-    if not p.exists():
-        return {
-            "success": False,
-            "path": str(p),
-            "error": f"File does not exist: {p}",
-            "action": "open_file"
-        }
+    if not p.exists() or not p.is_file():
+        discovered = find_target_file(path)
+        if discovered and discovered.is_file():
+            p = discovered
+        else:
+            return {
+                "success": False,
+                "path": str(p),
+                "error": f"File '{path}' not found across your computer (scanned home, projects, documents, desktop).",
+                "action": "open_file"
+            }
 
     try:
         proc = subprocess.Popen(

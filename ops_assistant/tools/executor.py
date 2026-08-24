@@ -54,6 +54,14 @@ class SafeExecutor:
             self.history.append(res)
             return res
 
+        gui_launchers = ("xdg-open", "google-chrome", "chromium", "brave", "firefox", "nautilus", "dolphin", "thunar", "eog", "feh", "xcalc", "gnome-calculator")
+        cmd_trimmed = command_str.strip()
+        is_gui = any(cmd_trimmed == g or cmd_trimmed.startswith(g + " ") for g in gui_launchers)
+
+        cmd_to_run = command_str
+        if is_gui and not (">/dev/null" in command_str or "&" in command_str):
+            cmd_to_run = f"nohup {command_str} >/dev/null 2>&1 &"
+
         start_time = time.perf_counter()
 
         # Check if the command is a desktop GUI launcher that forks a persistent window
@@ -100,7 +108,7 @@ class SafeExecutor:
 
         try:
             sub_res = subprocess.run(
-                command_str,
+                cmd_to_run,
                 shell=True,
                 capture_output=True,
                 text=True,

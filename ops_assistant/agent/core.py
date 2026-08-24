@@ -12,7 +12,7 @@ from ops_assistant.models import (
 from ops_assistant.collectors.hub import TelemetryHub
 from ops_assistant.collectors.distro_detector import DistroDetector, DistroInfo
 from ops_assistant.db.distro_db import DistroKnowledgeBase
-from ops_assistant.explainer.xai import XAIExplainer, CommandExplainer, ErrorExplainer
+from ops_assistant.explainer.xai import XAIExplainer, CommandExplainer, ErrorExplainer, ExecutionOutcomeExplainer
 from ops_assistant.explainer.causality_dag import CausalityDAGEngine, CausalityGraphResult
 from ops_assistant.tools.safety import CommandSafetyValidator
 from ops_assistant.tools.sandbox_probe import EphemeralSandboxProbe
@@ -36,11 +36,12 @@ class ReActAgent:
         "chrony", "timesyncd", "ufw", "iptables", "firewalld"
     ]
 
+
     # Baseline taxonomy knowledge for deterministic edge / air-gapped fast path
     DETERMINISTIC_PATTERNS = [
         {
             "id": "PORT_CONFLICT",
-            "pattern": r"(Address already in use|bind\(\) to .* failed|port \d+ already in use|EADDRINUSE)",
+            "pattern": r"(Address already in use|bind\(\)? to .* fail(?:ed|ing)?|fail(?:ing|ed)? to bind to (?:port )?\d+|port \d+ already in use|EADDRINUSE)",
             "tool_to_run": "inspect_listening_ports",
             "symptom": "Service failed to bind to target TCP/UDP socket.",
             "root_cause": "The configured listening port is already bound by another active process.",
@@ -244,7 +245,7 @@ class ReActAgent:
 
     def __init__(
         self,
-        llm_provider: Optional[Union[LLMProvider, str]] = None,
+        llm_provider: Optional[Union[LLMProvider, str]] = "auto",
         distro_db: Optional[DistroKnowledgeBase] = None,
         distro_detector: Optional[DistroDetector] = None,
         model_path: Optional[str] = None,
@@ -266,6 +267,9 @@ class ReActAgent:
         from ops_assistant.hardware.advisor import HardwareAdvisor
         self.hardware_advisor = HardwareAdvisor()
 
+        from ops_assistant.nlp.context_manager import ContextManager
+        self.context_manager = ContextManager()
+
         if isinstance(llm_provider, str):
             prov_str = llm_provider.lower().strip()
             if prov_str in ["gemini", "google"]:
@@ -274,60 +278,63 @@ class ReActAgent:
                 self.llm_provider = LlamaCppProvider(model_path=model_path)
             elif prov_str in ["ollama", "remote"]:
                 self.llm_provider = OllamaProvider()
-            elif prov_str == "auto":
-                try:
-                    from ops_assistant.config import get_config
-                    cfg = get_config()
-                    cfg_prov = cfg.get("provider", "auto")
-                except Exception:
-                    cfg_prov = "auto"
-                    cfg = {}
-
-                if cfg_prov == "gemini":
-                    self.llm_provider = GeminiProvider()
-                elif cfg_prov == "deterministic":
-                    self.llm_provider = None
-                elif cfg_prov == "ollama":
-                    self.llm_provider = OllamaProvider(
-                        endpoint=cfg.get("ollama_endpoint", "http://localhost:11434/api/generate"),
-                        model=cfg.get("ollama_model", "llama3:8b")
-                    )
-                elif cfg_prov == "gguf":
-                    target_model_path = model_path or cfg.get("active_model_path")
-                    gguf_p = LlamaCppProvider(model_path=target_model_path)
-                    avail = False
-                    if hasattr(gguf_p, "is_available"):
-                        try:
-                            res_av = gguf_p.is_available()
-                            avail = bool(res_av[0] if isinstance(res_av, tuple) else res_av)
-                        except Exception:
-                            pass
-                    self.llm_provider = gguf_p if avail else None
-                else:
-                    gemini_p = GeminiProvider()
-                    avail_gemini = False
-                    try:
-                        res_av = gemini_p.is_available()
-                        avail_gemini = bool(res_av[0] if isinstance(res_av, tuple) else res_av)
-                    except Exception:
-                        pass
-
-                    if avail_gemini:
-                        self.llm_provider = gemini_p
-                    else:
-                        target_model_path = model_path or cfg.get("active_model_path")
-                        gguf_p = LlamaCppProvider(model_path=target_model_path)
-                        avail_gguf = False
-                        try:
-                            res_av = gguf_p.is_available()
-                            avail_gguf = bool(res_av[0] if isinstance(res_av, tuple) else res_av)
-                        except Exception:
-                            pass
-                        self.llm_provider = gguf_p if avail_gguf else None
-            else:
+            elif prov_str in ["deterministic", "none"]:
                 self.llm_provider = None
+            else: # "auto"
+                self.llm_provider = self._resolve_auto_provider(model_path)
+        elif llm_provider is None:
+            self.llm_provider = None
         else:
             self.llm_provider = llm_provider
+
+    def _resolve_auto_provider(self, model_path: Optional[str] = None) -> Optional[LLMProvider]:
+        """Resolves the best available local or API LLM provider."""
+        try:
+            from ops_assistant.config import get_config
+            cfg = get_config()
+            cfg_prov = cfg.get("provider", "auto")
+        except Exception:
+            cfg_prov = "auto"
+            cfg = {}
+
+        if cfg_prov == "gemini":
+            p = GeminiProvider()
+            avail, _ = p.is_available()
+            return p if avail else None
+        elif cfg_prov == "ollama":
+            p = OllamaProvider(
+                endpoint=cfg.get("ollama_endpoint", "http://localhost:11434/api/generate"),
+                model=cfg.get("ollama_model", "llama3:8b")
+            )
+            avail, _ = p.is_available()
+            return p if avail else None
+        elif cfg_prov == "gguf":
+            target_model_path = model_path or cfg.get("active_model_path")
+            p = LlamaCppProvider(model_path=target_model_path)
+            avail, _ = p.is_available()
+            return p if avail else None
+        elif cfg_prov == "deterministic":
+            return None
+
+        # Auto detection priority: GGUF local weights -> Gemini API -> Ollama
+        target_model_path = model_path or cfg.get("active_model_path")
+        if target_model_path:
+            gguf_p = LlamaCppProvider(model_path=target_model_path)
+            avail_gguf, _ = gguf_p.is_available()
+            if avail_gguf:
+                return gguf_p
+
+        gemini_p = GeminiProvider()
+        avail_gemini, _ = gemini_p.is_available()
+        if avail_gemini:
+            return gemini_p
+
+        ollama_p = OllamaProvider()
+        avail_ollama, _ = ollama_p.is_available()
+        if avail_ollama:
+            return ollama_p
+
+        return None
 
     def extract_subsystem(self, query: str) -> Optional[str]:
         query_lower = query.lower()
@@ -571,21 +578,50 @@ class ReActAgent:
         # 4. Dynamic Causality Graph from Ingested Logs & Tool Observations
         dag_result = self.causality_engine.build_dag_from_events(log_messages)
 
-        # 5. Hybrid Reasoning: LLM Synthesis with Grounded Tool Evidence vs Deterministic Fast Path
+        # 5. Hybrid Reasoning: LLM Synthesis with Observations vs Deterministic Fast Path
         llm_diagnosis = None
         if llm_avail:
-            if hasattr(self.llm_provider, "generate_diagnosis"):
+            if hasattr(self.llm_provider, "synthesize_diagnosis"):
                 try:
-                    llm_diagnosis = self.llm_provider.generate_diagnosis(resolved_query, system_context)
+                    res = self.llm_provider.synthesize_diagnosis(resolved_query, system_context, observations)
+                    if isinstance(res, dict) and "symptom" in res:
+                        llm_diagnosis = res
                 except Exception:
                     pass
-            if not llm_diagnosis and hasattr(self.llm_provider, "synthesize_diagnosis"):
+            if not llm_diagnosis and hasattr(self.llm_provider, "generate_diagnosis"):
                 try:
-                    llm_diagnosis = self.llm_provider.synthesize_diagnosis(resolved_query, system_context, observations)
+                    res = self.llm_provider.generate_diagnosis(resolved_query, system_context)
+                    if isinstance(res, dict) and "symptom" in res:
+                        llm_diagnosis = res
                 except Exception:
                     pass
 
+        matched_item = None
         evidence: List[str] = []
+        if not llm_diagnosis:
+            for item in self.DETERMINISTIC_PATTERNS:
+                matches = re.findall(item["pattern"], combined_text, flags=re.IGNORECASE)
+                if matches:
+                    matched_item = item
+                    for l in logs:
+                        if re.search(item["pattern"], l.message, flags=re.IGNORECASE):
+                            evidence.append(f"[{l.source}] {l.message}")
+                    break
+
+            if not matched_item:
+                distro_sigs = self.distro_db.get_error_signatures(distro_info.family_id)
+                for sig in distro_sigs:
+                    if re.search(sig["pattern"], combined_text, flags=re.IGNORECASE):
+                        matched_item = {
+                            "id": sig["id"],
+                            "symptom": sig["symptom"],
+                            "root_cause": sig["root_cause"],
+                            "commands": [(cmd, SafetyLevel.READ_ONLY, 0.05, f"Distro-specific check for {distro_info.family_id}") for cmd in sig["recommended_commands"]],
+                            "rationale": f"Matched distribution rule signature: {sig['id']}"
+                        }
+                        evidence.append(f"Matched {distro_info.distro_name} error signature '{sig['id']}'")
+                        break
+
         if llm_diagnosis and isinstance(llm_diagnosis, dict) and "symptom" in llm_diagnosis:
             symptom = llm_diagnosis.get("symptom", "LLM-detected anomaly")
             root_cause = llm_diagnosis.get("root_cause", "Root cause identified via LLM tool synthesis")
@@ -608,66 +644,35 @@ class ReActAgent:
                     parsed_cmds.append((str(cmd[0]), SafetyLevel.READ_ONLY, 0.05, "Proposed remediation command."))
 
             raw_cmds = parsed_cmds
+        elif matched_item:
+            symptom = matched_item["symptom"]
+            root_cause = matched_item["root_cause"]
+            rationale = matched_item["rationale"]
+            raw_cmds = [
+                (cmd[0].replace("{service}", svc_name), cmd[1], cmd[2], cmd[3])
+                for cmd in matched_item["commands"]
+            ]
+            raw_cmds = self._adapt_commands_for_distro(
+                matched_item.get("id"), raw_cmds, distro_info, svc_name
+            )
+            confidence = 0.96
+            reasoning_engine = f"ReAct-Grounded-Deterministic ({distro_info.distro_name})"
         else:
-            # Deterministic Pattern Match Fallback (Offline / Air-Gapped)
-            matched_item = None
-            for item in self.DETERMINISTIC_PATTERNS:
-                matches = re.findall(item["pattern"], combined_text, flags=re.IGNORECASE)
-                if matches:
-                    matched_item = item
-                    for l in logs:
-                        if re.search(item["pattern"], l.message, flags=re.IGNORECASE):
-                            evidence.append(f"[{l.source}] {l.message}")
-                    break
-
-            if not matched_item:
-                distro_sigs = self.distro_db.get_error_signatures(distro_info.family_id)
-                for sig in distro_sigs:
-                    if re.search(sig["pattern"], combined_text, flags=re.IGNORECASE):
-                        matched_item = {
-                            "id": sig["id"],
-                            "pattern": sig["pattern"],
-                            "symptom": f"Distro-specific issue ({distro_info.distro_name}): {sig['id']}",
-                            "root_cause": sig["explanation"],
-                            "commands": [
-                                (sig["remediation"].replace("{service}", svc_name).replace("{path}", f"/var/log/{svc_name}"), SafetyLevel.HIGH_RISK, 0.70, sig["explanation"])
-                            ],
-                            "rationale": sig["explanation"]
-                        }
-                        for l in logs:
-                            if re.search(sig["pattern"], l.message, flags=re.IGNORECASE):
-                                evidence.append(f"[{l.source}] {l.message}")
-                        break
-
-            if matched_item:
-                symptom = matched_item["symptom"]
-                root_cause = matched_item["root_cause"]
-                rationale = matched_item["rationale"]
+            symptom = f"Unclassified anomaly detected on {svc_name}."
+            root_cause = "General service startup or operational failure."
+            rationale = "Inspect recent service logs and process state to identify failure root cause."
+            if distro_info.family_id == "alpine":
                 raw_cmds = [
-                    (cmd[0].replace("{service}", svc_name), cmd[1], cmd[2], cmd[3])
-                    for cmd in matched_item["commands"]
+                    (f"logread | grep {svc_name}", SafetyLevel.READ_ONLY, 0.05, "Retrieve recent service logs from syslogd buffer."),
+                    (f"sudo rc-service {svc_name} status", SafetyLevel.READ_ONLY, 0.05, "Inspect OpenRC service status and PID.")
                 ]
-                raw_cmds = self._adapt_commands_for_distro(
-                    matched_item.get("id"), raw_cmds, distro_info, svc_name
-                )
-                confidence = 0.96
-                reasoning_engine = f"ReAct-Grounded-Deterministic ({distro_info.distro_name})"
             else:
-                symptom = f"Unclassified anomaly detected on {svc_name}."
-                root_cause = "General service startup or operational failure."
-                rationale = "Inspect recent service logs and process state to identify failure root cause."
-                if distro_info.family_id == "alpine":
-                    raw_cmds = [
-                        (f"logread | grep {svc_name}", SafetyLevel.READ_ONLY, 0.05, "Retrieve recent service logs from syslogd buffer."),
-                        (f"sudo rc-service {svc_name} status", SafetyLevel.READ_ONLY, 0.05, "Inspect OpenRC service status and PID.")
-                    ]
-                else:
-                    raw_cmds = [
-                        (f"sudo journalctl -u {svc_name} -n 50 --no-pager", SafetyLevel.READ_ONLY, 0.05, "Retrieve recent systemd service logs."),
-                        (f"systemctl status {svc_name}", SafetyLevel.READ_ONLY, 0.05, "Inspect unit status and active process ID.")
-                    ]
-                confidence = 0.80
-                reasoning_engine = f"ReAct-General-Triage ({distro_info.distro_name})"
+                raw_cmds = [
+                    (f"sudo journalctl -u {svc_name} -n 50 --no-pager", SafetyLevel.READ_ONLY, 0.05, "Retrieve recent systemd service logs."),
+                    (f"systemctl status {svc_name}", SafetyLevel.READ_ONLY, 0.05, "Inspect unit status and active process ID.")
+                ]
+            confidence = 0.80
+            reasoning_engine = f"ReAct-General-Triage ({distro_info.distro_name})"
 
         # 6. Synthesize XAI Explanation & Rollback Plans
         xai = self.explainer.synthesize_xai(
@@ -733,6 +738,31 @@ class ReActAgent:
         """Explain a failed shell command execution using ErrorExplainer."""
         return ErrorExplainer.explain_error(command_str, returncode, stderr=stderr, stdout=stdout)
 
+    def explain_execution_outcome(
+        self,
+        command_str: str,
+        returncode: int,
+        stdout: str = "",
+        stderr: str = "",
+        query: Optional[str] = None,
+        elapsed_ms: float = 0.0,
+        intent: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Explain the execution outcome of a command, including system changes or failure diagnosis."""
+        return ExecutionOutcomeExplainer.explain_outcome(
+            command=command_str,
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
+            query=query,
+            elapsed_ms=elapsed_ms,
+            intent=intent,
+            context=context,
+            llm_provider=self.llm_provider
+        )
+
+
     def interpret_command(self, text: str) -> Dict[str, Any]:
         """Classify and plan a natural-language command without executing anything."""
         result = self.execute_agent_action(text, execute=False)
@@ -789,13 +819,78 @@ class ReActAgent:
         import sys
         from ops_assistant.nlp.intent_router import IntentRouter, IntentType
         from ops_assistant.nlp.nl_compiler import NaturalLanguageCompiler, generate_natural_explanation
+        from ops_assistant.nlp.ambiguity_resolver import AmbiguityResolver
         from ops_assistant.tools import (
             desktop_ops, download_ops, storage_ops, process_ops, network_ops,
             log_ops, system_ops, docker_ops, security_ops, backup_ops, project_ops
         )
 
+        # 1. Ambiguity Resolution Check (Never guess when ambiguous)
+        amb = AmbiguityResolver.check_ambiguity(
+            query,
+            active_directory=self.context_manager.active_directory if hasattr(self, "context_manager") else None
+        )
+        if amb.is_ambiguous:
+            return {
+                "query": query,
+                "intent": "clarification_needed",
+                "is_ambiguous": True,
+                "ambiguity_type": amb.ambiguity_type,
+                "ambiguity_prompt": amb.prompt,
+                "candidates": amb.candidates,
+                "action_template": amb.action_template,
+                "summary": amb.prompt,
+                "command": "",
+                "command_description": amb.prompt,
+                "safety_level": SafetyLevel.READ_ONLY.value,
+                "risk_score": 0.0,
+                "planned_commands": [],
+                "output": None,
+                "rollback_command": None,
+                "diagnostic_report": None,
+                "requires_permission": False,
+                "executed": False,
+                "timestamp": time.time()
+            }
+
+        def _finalize_outcome(res_dict: Dict[str, Any]) -> Dict[str, Any]:
+            cmd_str = res_dict.get("command", "")
+            out_data = res_dict.get("output")
+            ret_code = 0
+            stdout = ""
+            stderr = ""
+            elapsed = 0.0
+            if isinstance(out_data, dict):
+                ret_code = out_data.get("returncode", 0 if res_dict.get("executed") else 0)
+                stdout = str(out_data.get("stdout") or "")
+                stderr = str(out_data.get("stderr") or "")
+                elapsed = float(out_data.get("elapsed_ms", 0.0))
+
+            outcome = ExecutionOutcomeExplainer.explain_outcome(
+                command=cmd_str,
+                returncode=ret_code,
+                stdout=stdout,
+                stderr=stderr,
+                query=query,
+                elapsed_ms=elapsed,
+                intent=res_dict.get("intent"),
+                context=context,
+                llm_provider=self.llm_provider
+            )
+            if not res_dict.get("explanation_paragraph") or res_dict.get("explanation_paragraph") == res_dict.get("summary"):
+                res_dict["explanation_paragraph"] = outcome.get("explanation_paragraph", "")
+            res_dict["natural_explanation"] = outcome.get("natural_explanation", "")
+            res_dict["ai_explanation"] = outcome.get("ai_elaboration") or outcome.get("natural_explanation", "")
+            res_dict["changes_made"] = outcome.get("changes_made", [])
+            res_dict["changes_summary"] = outcome.get("changes_summary", "")
+            res_dict["failure_analysis"] = outcome.get("failure_analysis")
+            res_dict["is_success"] = outcome.get("is_success", True)
+            return res_dict
+
         resolved_query = query
-        if self.session is not None:
+        if hasattr(self, "context_manager") and self.context_manager is not None:
+            resolved_query, _ = self.context_manager.resolve_contextual_query(query)
+        elif self.session is not None:
             resolved_query = self.session.resolve_pronouns(query)
 
         router = getattr(self, "_router", None)
@@ -806,18 +901,43 @@ class ReActAgent:
         intent = router.classify(resolved_query)
         args = intent.args or {}
 
-        compiled = NaturalLanguageCompiler.compile(resolved_query)
-        if compiled and compiled.get("command") and (
-            intent.type in (
-                IntentType.UNKNOWN, IntentType.GENERIC_COMMAND, IntentType.SHELL_RUN, IntentType.DIAGNOSE,
-                IntentType.FILE_FIND, IntentType.FILE_SHOW, IntentType.FILE_CREATE, IntentType.FILE_TRASH,
-                IntentType.FILE_COPY, IntentType.FILE_MOVE, IntentType.DESKTOP_OPEN_FOLDER,
-                IntentType.DESKTOP_OPEN_FILE, IntentType.DESKTOP_OPEN_BROWSER
-            ) or any(k in compiled.get("command", "") for k in (
-                "playerctl", "brightnessctl", "hyprctl", "notify-send", "tar", "gio trash",
-                "mkdir", "killall -SIGUSR2", "wpctl", "pactl", "upower"
-            ))
-        ):
+        is_diag = (intent.type == IntentType.DIAGNOSE) or router._looks_diagnostic(resolved_query)
+        compiled = None if is_diag else NaturalLanguageCompiler.compile(resolved_query)
+        
+        # Determine if this intent should be handled directly by compiled shell pipeline
+        STRUCTURED_BUILTIN_INTENTS = {
+            IntentType.PROCESS_LIST, IntentType.PROCESS_KILL, IntentType.PROCESS_INFO,
+            IntentType.SERVICE_STATUS, IntentType.SERVICE_START, IntentType.SERVICE_STOP, IntentType.SERVICE_RESTART,
+            IntentType.FIREWALL_ALLOW, IntentType.FIREWALL_DENY, IntentType.FIREWALL_STATUS,
+            IntentType.NETWORK_PING, IntentType.NETWORK_DNS, IntentType.NETWORK_PORTS,
+            IntentType.SECURITY_AUDIT, IntentType.SECURITY_BRUTEFORCE, IntentType.SECURITY_SUID,
+            IntentType.STORAGE_ANALYSE, IntentType.STORAGE_CLEAN, IntentType.STORAGE_ORGANISE, IntentType.STORAGE_FIND_LARGE,
+            IntentType.SYSTEM_INFO, IntentType.SYSTEM_UPTIME, IntentType.USER_WHO,
+            IntentType.LOGS_ERRORS, IntentType.LOGS_KERNEL,
+            IntentType.BACKUP_CREATE, IntentType.BACKUP_RESTORE,
+            IntentType.DOCKER_LIST, IntentType.DOCKER_LOGS, IntentType.DOCKER_PRUNE,
+            IntentType.HARDWARE_PROFILE, IntentType.HARDWARE_RECOMMEND_MODEL,
+            IntentType.CRON_LIST
+        }
+
+        should_use_compiled = (
+            compiled is not None and bool(compiled.get("command"))
+            and (
+                intent.type not in STRUCTURED_BUILTIN_INTENTS
+                or compiled.get("intent") in (
+                    "dir_create", "file_create", "perm_change", "archive_create", "archive_extract",
+                    "file_rename", "file_move", "file_copy", "file_delete_largest", "storage_clean_temp",
+                    "storage_clean_trash", "desktop_open_folder", "desktop_open_browser", "desktop_open_file",
+                    "git_status", "git_branch", "git_log", "git_pull", "dev_tests", "system_battery"
+                )
+                or any(k in compiled.get("command", "") for k in (
+                    "playerctl", "brightnessctl", "hyprctl", "notify-send", "tar", "gio trash",
+                    "mkdir", "killall -SIGUSR2", "wpctl", "pactl", "upower"
+                ))
+            )
+        )
+
+        if should_use_compiled:
             cmd = compiled["command"]
             summary = compiled.get("summary", f"Run `{cmd}`")
             safety_lvl = compiled.get("safety_level", SafetyLevel.MODIFYING.value)
@@ -858,7 +978,16 @@ class ReActAgent:
             else:
                 res_action["summary"] = f"Ready to run: `{cmd}` — {summary}"
 
-            return res_action
+            if hasattr(self, "context_manager") and self.context_manager is not None:
+                self.context_manager.update_context(
+                    query=query,
+                    intent=compiled.get("intent", "desktop_command"),
+                    command=cmd,
+                    target_path=compiled.get("path") or compiled.get("target"),
+                    output_summary=res_action.get("summary")
+                )
+
+            return _finalize_outcome(res_action)
 
         # Standard Intent Handling
         result: Dict[str, Any] = {
@@ -938,7 +1067,7 @@ class ReActAgent:
                 exec_res = executor.execute(cmd, rollback_cmd=rb)
                 result["output"] = exec_res
                 result["executed"] = True
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.PACKAGE_REMOVE:
             pkg = args.get("package") or args.get("pkg", "")
@@ -989,7 +1118,7 @@ class ReActAgent:
                 exec_res = executor.execute(cmd, rollback_cmd=rb)
                 result["output"] = exec_res
                 result["executed"] = True
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type in (IntentType.PACKAGE_UPDATE, IntentType.SYSTEM_UPDATE):
             d_info = self.distro_detector.detect(override_family=distro_override)
@@ -1030,7 +1159,7 @@ class ReActAgent:
                 exec_res = executor.execute(cmd)
                 result["output"] = exec_res
                 result["executed"] = True
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.PACKAGE_SEARCH:
             pkg = args.get("package") or args.get("pkg", "")
@@ -1071,13 +1200,14 @@ class ReActAgent:
                 exec_res = executor.execute(cmd)
                 result["output"] = exec_res
                 result["executed"] = True
-            return result
+            return _finalize_outcome(result)
 
         # -----------------------------------------------------------------
         # 2. Desktop & OS Applications
         # -----------------------------------------------------------------
         elif intent.type == IntentType.DESKTOP_OPEN_FOLDER:
-            target_path = args.get("path") or args.get("target", "~")
+            raw_path = args.get("path") or args.get("target", "~")
+            target_path = os.path.expanduser(raw_path)
             create_missing = args.get("create_if_missing", False)
             expanded_path = os.path.expanduser(target_path)
             result["command"] = f"xdg-open '{expanded_path}'"
@@ -1086,7 +1216,7 @@ class ReActAgent:
             result["summary"] = f"Opened folder {expanded_path}"
             if execute:
                 result["output"] = desktop_ops.open_folder(expanded_path, create_if_missing=create_missing)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.DESKTOP_OPEN_BROWSER:
             url = args.get("url", "https://google.com")
@@ -1098,27 +1228,29 @@ class ReActAgent:
             result["summary"] = f"Opened browser to {url}"
             if execute:
                 result["output"] = desktop_ops.open_browser(url)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.DESKTOP_OPEN_FILE:
-            target = args.get("path") or args.get("target", "")
+            raw_target = args.get("path") or args.get("target", "")
+            target = os.path.expanduser(raw_target)
             result["command"] = f"xdg-open '{target}'"
             result["command_description"] = f"Opens '{target}' in its default application handler."
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["summary"] = f"Opened file {target}"
             if execute:
                 result["output"] = desktop_ops.open_file(target)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.DESKTOP_OPEN_IMAGE:
-            target = args.get("path") or args.get("target", "")
+            raw_target = args.get("path") or args.get("target", "")
+            target = os.path.expanduser(raw_target)
             result["command"] = f"xdg-open '{target}'"
             result["command_description"] = f"Opens image '{target}' in the default image viewer."
             result["safety_level"] = SafetyLevel.READ_ONLY.value
             result["summary"] = f"Opened image {target}"
             if execute:
                 result["output"] = desktop_ops.open_image(target)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.DESKTOP_SET_WALLPAPER:
             target_path = args.get("path")
@@ -1217,7 +1349,7 @@ class ReActAgent:
                 exec_res = executor.execute(cmd, rollback_cmd=result["rollback_command"])
                 result["output"] = exec_res
                 result["executed"] = True
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.STORAGE_CLEAN:
             result["requires_permission"] = True
@@ -1228,7 +1360,7 @@ class ReActAgent:
             result["summary"] = "Clean system cache and temporary log files"
             if execute:
                 result["output"] = storage_ops.clean_system()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.STORAGE_CLEAN_TRASH:
             result["requires_permission"] = True
@@ -1239,7 +1371,7 @@ class ReActAgent:
             result["summary"] = "Empty desktop trash bin"
             if execute:
                 result["output"] = storage_ops.clean_trash()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.STORAGE_ORGANISE:
             target = args.get("path") or args.get("target", "~/Downloads")
@@ -1253,7 +1385,7 @@ class ReActAgent:
                 result["output"] = storage_ops.organize_folder(target, dry_run=False)
             else:
                 result["output"] = storage_ops.organize_folder(target, dry_run=True)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.FILE_FIND:
             target = args.get("path") or args.get("name", "")
@@ -1307,7 +1439,7 @@ class ReActAgent:
             result["summary"] = "Analyze disk storage utilization"
             if execute:
                 result["output"] = storage_ops.analyze_storage()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type in (IntentType.STORAGE_FIND_LARGE, IntentType.SYSTEM_FIND_LARGE):
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1316,7 +1448,7 @@ class ReActAgent:
             result["summary"] = "Find large files consuming disk storage"
             if execute:
                 result["output"] = storage_ops.find_large_files()
-            return result
+            return _finalize_outcome(result)
 
         # -----------------------------------------------------------------
         # 4. Downloads & Projects
@@ -1332,7 +1464,7 @@ class ReActAgent:
             result["command_description"] = f"Downloads remote file from '{url}'" + (f" and saves to '{dest}'" if dest else "") + "."
             result["summary"] = f"Download URL '{url}'"
             result["output"] = download_ops.download_file(url=url, dest_path=dest, dry_run=not execute)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.PROJECT_INSTALL_DEPS:
             target = args.get("path", ".")
@@ -1348,7 +1480,7 @@ class ReActAgent:
             result["command_description"] = f"Installs dependencies detected in project manifest at '{target}'."
             result["summary"] = f"Install project dependencies in {target}"
             result["output"] = project_ops.install_project_dependencies(target_dir=target, dry_run=not execute)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.PROJECT_CREATE_VENV:
             target = args.get("path", ".")
@@ -1362,7 +1494,7 @@ class ReActAgent:
             result["summary"] = f"Create Python virtualenv '{vname}'"
             result["rollback_command"] = f"rm -rf '{target}/{vname}'"
             result["output"] = project_ops.create_python_venv(target_dir=target, venv_name=vname, dry_run=not execute)
-            return result
+            return _finalize_outcome(result)
 
         # -----------------------------------------------------------------
         # 5. Processes
@@ -1373,7 +1505,7 @@ class ReActAgent:
             result["command_description"] = "Lists top running processes sorted by memory consumption."
             result["summary"] = "List top running processes"
             result["output"] = process_ops.list_top_processes(n=15, sort_by=args.get("sort_by", "mem"))
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.PROCESS_KILL:
             pid = args.get("pid")
@@ -1391,7 +1523,7 @@ class ReActAgent:
                 result["summary"] = f"Terminate process '{name}'"
             if execute:
                 result["output"] = process_ops.kill_process(name=name, pid=pid)
-            return result
+            return _finalize_outcome(result)
 
         # -----------------------------------------------------------------
         # 6. Services & System Units
@@ -1451,7 +1583,7 @@ class ReActAgent:
                         result["rollback_command"] = f"sudo systemctl restart '{svc}'"
             if execute:
                 result["output"] = system_ops.manage_service(action=action, service=svc)
-            return result
+            return _finalize_outcome(result)
 
         # -----------------------------------------------------------------
         # 7. Network & Firewall
@@ -1462,7 +1594,7 @@ class ReActAgent:
             result["command_description"] = "Scans all open TCP/UDP sockets with process names and listening PIDs."
             result["summary"] = "Inspect listening network ports"
             result["output"] = network_ops.list_listening_ports()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.NETWORK_PING:
             host = args.get("host", "google.com")
@@ -1472,7 +1604,7 @@ class ReActAgent:
             result["summary"] = f"Ping network host {host}"
             if execute:
                 result["output"] = network_ops.ping_host(host)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.NETWORK_DNS:
             host = args.get("host", "github.com")
@@ -1482,7 +1614,7 @@ class ReActAgent:
             result["summary"] = f"DNS lookup for {host}"
             if execute:
                 result["output"] = network_ops.dns_lookup(host)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type in (IntentType.FIREWALL_ALLOW, IntentType.FIREWALL_DENY):
             port = args.get("port", 80)
@@ -1511,7 +1643,7 @@ class ReActAgent:
             result["summary"] = f"Firewall {action} port {port}"
             if execute:
                 result["output"] = network_ops.manage_firewall(action=action, port=port)
-            return result
+            return _finalize_outcome(result)
 
         # -----------------------------------------------------------------
         # 8. Security & Vulnerability Auditing
@@ -1522,7 +1654,7 @@ class ReActAgent:
             result["command_description"] = "Executes multi-vector security scan checking SSH configs, SUID binaries, and listening ports."
             result["summary"] = "Run comprehensive system security audit"
             result["output"] = security_ops.run_security_scan()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.SECURITY_BRUTEFORCE:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1530,7 +1662,7 @@ class ReActAgent:
             result["command_description"] = "Inspects authentication logs for SSH brute-force attack attempts."
             result["summary"] = "Check SSH authentication brute-force attempts"
             result["output"] = security_ops.check_ssh_bruteforce()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.SECURITY_SUID:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1538,7 +1670,7 @@ class ReActAgent:
             result["command_description"] = "Scans filesystem for SUID root binaries that could allow privilege escalation."
             result["summary"] = "Scan for SUID root binaries"
             result["output"] = security_ops.check_suid_binaries()
-            return result
+            return _finalize_outcome(result)
 
         # -----------------------------------------------------------------
         # 9. Docker & Containers
@@ -1549,7 +1681,7 @@ class ReActAgent:
             result["command_description"] = "Lists all running and stopped Docker containers with their port mappings."
             result["summary"] = "List Docker containers"
             result["output"] = docker_ops.list_containers()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.DOCKER_RESTART:
             c = args.get("container", "")
@@ -1562,7 +1694,7 @@ class ReActAgent:
             result["rollback_command"] = f"docker restart '{c}'"
             if execute:
                 result["output"] = docker_ops.restart_container(c)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.DOCKER_PRUNE:
             result["requires_permission"] = True
@@ -1573,7 +1705,7 @@ class ReActAgent:
             result["summary"] = "Prune unused Docker resources"
             if execute:
                 result["output"] = docker_ops.prune_system()
-            return result
+            return _finalize_outcome(result)
 
         # -----------------------------------------------------------------
         # 10. System Maintenance & Diagnostics
@@ -1584,7 +1716,7 @@ class ReActAgent:
             result["command_description"] = "Analyzes Linux kernel and systemd boot sequence initialization times."
             result["summary"] = "Analyze system boot time performance"
             result["output"] = system_ops.analyze_boot_time()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.SYSTEM_TRIM_SSD:
             result["requires_permission"] = True
@@ -1594,7 +1726,7 @@ class ReActAgent:
             result["command_description"] = "Discards unused blocks across all mounted SSD filesystems to optimize flash wear."
             result["summary"] = "Trim SSD filesystem blocks"
             result["output"] = system_ops.trim_ssds(dry_run=not execute)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.SYSTEM_PACKAGE_CLEAN:
             result["requires_permission"] = True
@@ -1616,7 +1748,7 @@ class ReActAgent:
             result["command_description"] = f"Removes cached package archives and freed metadata using {pkg_mgr}."
             result["summary"] = "Clean package manager cache"
             result["output"] = system_ops.clean_package_cache(dry_run=not execute)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.SYSTEM_JOURNAL_VACUUM:
             result["requires_permission"] = True
@@ -1626,7 +1758,7 @@ class ReActAgent:
             result["command_description"] = "Truncates and reclaims disk space occupied by systemd journal logs exceeding 200MB."
             result["summary"] = "Vacuum systemd journal logs"
             result["output"] = system_ops.vacuum_journal(dry_run=not execute)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.SYSTEM_CHECK_CPU:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1635,7 +1767,7 @@ class ReActAgent:
             result["summary"] = "Check CPU utilization"
             snap = self.hub.get_health_snapshot()
             result["output"] = {"user": snap.cpu.user_pct, "system": snap.cpu.system_pct, "idle": snap.cpu.idle_pct}
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.SYSTEM_CHECK_RAM:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1644,7 +1776,7 @@ class ReActAgent:
             result["summary"] = "Check memory & swap usage"
             snap = self.hub.get_health_snapshot()
             result["output"] = {"total_mb": snap.memory.total_mb, "used_mb": snap.memory.used_mb, "percent": snap.memory.used_percent}
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.SYSTEM_INFO:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1653,7 +1785,7 @@ class ReActAgent:
             result["summary"] = "Show system information"
             if execute:
                 result["output"] = system_ops.get_system_info()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.SYSTEM_UPTIME:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1662,7 +1794,7 @@ class ReActAgent:
             result["summary"] = "Show system uptime"
             if execute:
                 result["output"] = system_ops.get_uptime()
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.LOGS_ERRORS:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1671,7 +1803,7 @@ class ReActAgent:
             result["summary"] = "Show system error logs"
             if execute:
                 result["output"] = log_ops.query_logs(grep="error", lines=30)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.LOGS_KERNEL:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1680,7 +1812,7 @@ class ReActAgent:
             result["summary"] = "Show kernel logs"
             if execute:
                 result["output"] = log_ops.query_logs(unit="kernel", lines=30)
-            return result
+            return _finalize_outcome(result)
 
         elif intent.type == IntentType.USER_WHO:
             result["safety_level"] = SafetyLevel.READ_ONLY.value
@@ -1689,7 +1821,52 @@ class ReActAgent:
             result["summary"] = "List currently logged in users"
             if execute:
                 result["output"] = system_ops.get_logged_in_users()
-            return result
+            return _finalize_outcome(result)
+
+        # Intelligent LLM Synthesis Fallback for Open-Ended Natural Language Commands
+        if self.llm_provider and hasattr(self.llm_provider, "generate_command"):
+            try:
+                llm_res = self.llm_provider.generate_command(resolved_query)
+                if llm_res and isinstance(llm_res, dict) and llm_res.get("command"):
+                    raw_cmd = llm_res["command"].strip()
+                    if raw_cmd:
+                        safety_res = self.safety_validator.evaluate_safety(raw_cmd)
+                        s_level = safety_res[0].value
+                        r_score = float(safety_res[1])
+                        summary = llm_res.get("summary", f"Execute `{raw_cmd}`")
+                        rollback_cmd = llm_res.get("rollback_command")
+                        explanation_p = generate_natural_explanation(resolved_query, raw_cmd, 0, "", "")
+
+                        result["command"] = raw_cmd
+                        result["command_description"] = summary
+                        result["summary"] = summary
+                        result["explanation_paragraph"] = explanation_p
+                        result["safety_level"] = s_level
+                        result["risk_score"] = r_score
+                        result["rollback_command"] = rollback_cmd
+                        result["planned_commands"] = [{
+                            "command": raw_cmd,
+                            "description": summary,
+                            "safety_level": s_level,
+                            "risk_score": r_score
+                        }]
+                        result["intent"] = "llm_generated_command"
+                        result["requires_permission"] = s_level in ("HIGH_RISK", "DESTRUCTIVE")
+
+                        if execute:
+                            executor = SafeExecutor()
+                            result["output"] = executor.execute(raw_cmd, rollback_cmd=rollback_cmd)
+                            result["executed"] = True
+                        if hasattr(self, "context_manager") and self.context_manager is not None:
+                            self.context_manager.update_context(
+                                query=query,
+                                intent="llm_generated_command",
+                                command=raw_cmd,
+                                output_summary=summary
+                            )
+                        return _finalize_outcome(result)
+            except Exception:
+                pass
 
         # Default fallback to diagnostic ReAct loop
         rep = self.diagnose(query, distro_override=distro_override)
@@ -1711,4 +1888,12 @@ class ReActAgent:
                 }
                 for cmd in rep.explanation.proposed_commands
             ]
-        return result
+        if hasattr(self, "context_manager") and self.context_manager is not None:
+            self.context_manager.update_context(
+                query=query,
+                intent="diagnose",
+                service_name=rep.target_subsystem,
+                command=result.get("command"),
+                output_summary=result.get("summary")
+            )
+        return _finalize_outcome(result)
