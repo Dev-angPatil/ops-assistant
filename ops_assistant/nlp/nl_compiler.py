@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -28,10 +30,18 @@ class NaturalLanguageCompiler:
         "leadcode": "https://leetcode.com",
         "github": "https://github.com",
         "git hub": "https://github.com",
+        "gitlab": "https://gitlab.com",
+        "bitbucket": "https://bitbucket.org",
         "google": "https://google.com",
         "chatgpt": "https://chatgpt.com",
         "chat gpt": "https://chatgpt.com",
         "openai": "https://chatgpt.com",
+        "claude": "https://claude.ai",
+        "anthropic": "https://claude.ai",
+        "huggingface": "https://huggingface.co",
+        "hugging face": "https://huggingface.co",
+        "kaggle": "https://kaggle.com",
+        "colab": "https://colab.research.google.com",
         "reddit": "https://reddit.com",
         "twitter": "https://x.com",
         "x": "https://x.com",
@@ -48,38 +58,62 @@ class NaturalLanguageCompiler:
         "hackerrank": "https://hackerrank.com",
         "codechef": "https://codechef.com",
         "canvas": "https://canvas.instructure.com",
+        "discord": "https://discord.com/app",
+        "notion": "https://notion.so",
     }
 
     DESKTOP_APPS = {
-        "browser": ["xdg-open https://google.com"],
-        "web browser": ["xdg-open https://google.com"],
+        "browser": ["brave", "firefox", "google-chrome", "chromium", "xdg-open https://google.com"],
+        "web browser": ["brave", "firefox", "google-chrome", "chromium", "xdg-open https://google.com"],
         "chrome": ["google-chrome", "chromium", "xdg-open https://google.com"],
         "google chrome": ["google-chrome", "chromium", "xdg-open https://google.com"],
         "brave": ["brave", "brave-browser", "xdg-open https://google.com"],
         "brave browser": ["brave", "brave-browser", "xdg-open https://google.com"],
         "firefox": ["firefox", "xdg-open https://google.com"],
-        "terminal": ["x-terminal-emulator", "alacritty", "kitty", "gnome-terminal", "konsole", "xterm"],
-        "calculator": ["gnome-calculator", "kcalc", "galculator", "xcalc"],
-        "code": ["code .", "codium ."],
-        "vs code": ["code .", "codium ."],
-        "vscode": ["code .", "codium ."],
-        "file manager": ["xdg-open ~", "nautilus ~", "dolphin ~", "thunar ~"],
-        "files": ["xdg-open ~", "nautilus ~", "dolphin ~", "thunar ~"],
+        "terminal": ["kitty", "alacritty", "foot", "wezterm", "gnome-terminal", "konsole", "x-terminal-emulator", "xterm"],
+        "calculator": ["gnome-calculator", "kcalc", "galculator", "xcalc", "bc"],
+        "code": ["code .", "codium .", "cursor ."],
+        "vs code": ["code .", "codium .", "cursor ."],
+        "vscode": ["code .", "codium .", "cursor ."],
+        "file manager": ["xdg-open ~", "thunar ~", "nautilus ~", "dolphin ~", "pcmanfm ~"],
+        "files": ["xdg-open ~", "thunar ~", "nautilus ~", "dolphin ~", "pcmanfm ~"],
+        "settings": ["gnome-control-center", "systemsettings", "xfce4-settings-manager"],
+        "text editor": ["code .", "cursor .", "gedit", "kate", "mousepad", "xed", "nvim", "nano"],
+        "editor": ["code .", "cursor .", "gedit", "kate", "mousepad", "xed", "nvim", "nano"],
     }
 
     STANDARD_FOLDERS = {
         "downloads": "~/Downloads",
         "download": "~/Downloads",
+        "downlaods": "~/Downloads",
+        "downlaod": "~/Downloads",
+        "downlod": "~/Downloads",
+        "downlods": "~/Downloads",
+        "dwnload": "~/Downloads",
+        "dwnloads": "~/Downloads",
         "documents": "~/Documents",
         "document": "~/Documents",
+        "documnts": "~/Documents",
+        "documnt": "~/Documents",
+        "docs": "~/Documents",
+        "doc": "~/Documents",
         "desktop": "~/Desktop",
+        "desktops": "~/Desktop",
         "pictures": "~/Pictures",
         "picture": "~/Pictures",
+        "picturs": "~/Pictures",
+        "pictur": "~/Pictures",
         "photos": "~/Pictures",
+        "photo": "~/Pictures",
+        "pics": "~/Pictures",
+        "pic": "~/Pictures",
+        "images": "~/Pictures",
+        "image": "~/Pictures",
         "music": "~/Music",
         "videos": "~/Videos",
         "video": "~/Videos",
         "movies": "~/Videos",
+        "movie": "~/Videos",
         "home": "~",
         "root": "/",
     }
@@ -94,9 +128,11 @@ class NaturalLanguageCompiler:
         if not raw:
             return None
 
-        # Clean punctuation and extra spaces
+        # Clean punctuation and apply phonetic/Hinglish normalizations
+        from ops_assistant.voice.transcriber import PhoneticNormalizer
         clean = re.sub(r"^\$\s*", "", raw)
         clean = re.sub(r"[\.!\?]+$", "", clean).strip()
+        clean = PhoneticNormalizer.normalize(clean)
 
         # 1. Folder & Directory Creation
         # e.g. "inside Divya create one folder name as DBMS", "in Divya create folder DBMS"
@@ -188,6 +224,268 @@ class NaturalLanguageCompiler:
                 "explanation_paragraph": f"The assistant compiled your request into `mkdir -p '{parent}' && echo '{content}' > '{full_path}'`. This ensures the parent directory exists and writes the file content to disk."
             }
 
+        # e.g. "create file notes.txt with content 'hello'", "write 'hello' to notes.txt"
+        m = re.search(r"^(?:create|make|touch)\s+(?:a\s+|one\s+|new\s+)?file\s+(?P<file>[a-zA-Z0-9_\-\.\/~]+)(?:\s+with\s+(?:content|text)\s+['\"]?(?P<content>.*?)['\"]?)?$", clean, re.IGNORECASE)
+        if m:
+            filename = m.group("file").strip()
+            content = (m.group("content") or "").strip()
+            if content:
+                cmd = f"echo '{content}' > '{filename}'"
+                desc = f"Creates file '{filename}' with content."
+            else:
+                cmd = f"touch '{filename}'"
+                desc = f"Creates empty file '{filename}'."
+            return {
+                "command": cmd,
+                "path": filename,
+                "content": content,
+                "description": desc,
+                "intent": "file_create",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.20,
+                "rollback_command": f"rm -f '{filename}'",
+                "explanation": f"I will create the file '{filename}'.",
+                "explanation_paragraph": f"The assistant compiled your request to create the file `{filename}`."
+            }
+
+        # ---------------------------------------------------------------------
+        # 3. File Permissions & Ownership
+        # ---------------------------------------------------------------------
+        # e.g. "make script.sh executable", "give execute permission to script.sh", "make build.sh runnable"
+        m = re.search(r"^(?:please\s+)?(?:make|give|set)\s+['\"]?(?P<target>[a-zA-Z0-9_\-\.\/~]+)['\"]?\s+(?:as\s+)?(?:executable|runnable|exec\s+permission|execute\s+permission)\b", clean, re.IGNORECASE)
+        if not m:
+            m = re.search(r"^(?:please\s+)?(?:give|add|set)\s+(?:execute|executable|exec)\s+permission\s+(?:to|for|on)\s+['\"]?(?P<target>[a-zA-Z0-9_\-\.\/~]+)['\"]?$", clean, re.IGNORECASE)
+        if not m:
+            m = re.search(r"^chmod\s+\+x\s+['\"]?(?P<target>[a-zA-Z0-9_\-\.\/~]+)['\"]?$", clean, re.IGNORECASE)
+        if m:
+            target = m.group("target").strip()
+            cmd = f"chmod +x '{target}'"
+            return {
+                "command": cmd,
+                "path": target,
+                "description": f"Grants execution permissions to '{target}'.",
+                "intent": "perm_change",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.20,
+                "rollback_command": f"chmod -x '{target}'",
+                "explanation": f"I will make '{target}' executable (chmod +x).",
+                "explanation_paragraph": f"The assistant compiled your permission instruction into `chmod +x '{target}'`, allowing the file to be directly executed as a script or program."
+            }
+
+        # e.g. "change permission of file.txt to 755", "chmod 644 file.txt"
+        m = re.search(r"^(?:change|set)\s+(?:file\s+)?permission(?:s)?\s+(?:of|for|on)\s+['\"]?(?P<target>[a-zA-Z0-9_\-\.\/~]+)['\"]?\s+(?:to\s+)?(?P<mode>[0-7]{3,4})$", clean, re.IGNORECASE)
+        if not m:
+            m = re.search(r"^chmod\s+(?P<mode>[0-7]{3,4})\s+['\"]?(?P<target>[a-zA-Z0-9_\-\.\/~]+)['\"]?$", clean, re.IGNORECASE)
+        if m:
+            target = m.group("target").strip()
+            mode = m.group("mode").strip()
+            cmd = f"chmod {mode} '{target}'"
+            return {
+                "command": cmd,
+                "path": target,
+                "description": f"Changes permissions of '{target}' to {mode}.",
+                "intent": "perm_change",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.25,
+                "rollback_command": None,
+                "explanation": f"I will set permissions of '{target}' to {mode}.",
+                "explanation_paragraph": f"The assistant executed `chmod {mode} '{target}'` to adjust filesystem read, write, and execute bits."
+            }
+
+        # e.g. "change owner of file.txt to god", "chown user:group file.txt"
+        m = re.search(r"^(?:change|set)\s+(?:owner|ownership)\s+(?:of|for|on)\s+['\"]?(?P<target>[a-zA-Z0-9_\-\.\/~]+)['\"]?\s+(?:to\s+)?(?P<owner>[a-zA-Z0-9_\-]+(?::[a-zA-Z0-9_\-]+)?)$", clean, re.IGNORECASE)
+        if m:
+            target = m.group("target").strip()
+            owner = m.group("owner").strip()
+            cmd = f"sudo chown '{owner}' '{target}'"
+            return {
+                "command": cmd,
+                "path": target,
+                "description": f"Changes ownership of '{target}' to '{owner}'.",
+                "intent": "perm_change",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.35,
+                "rollback_command": None,
+                "explanation": f"I will change the owner of '{target}' to '{owner}'.",
+                "explanation_paragraph": f"The assistant compiled your request into `sudo chown '{owner}' '{target}'`."
+            }
+
+        # ---------------------------------------------------------------------
+        # 4. Compression & Archives (tar, zip, untar, unzip)
+        # ---------------------------------------------------------------------
+        # e.g. "compress folder Project to project.tar.gz", "tar folder Project to project.tar.gz"
+        m = re.search(r"^(?:please\s+)?(?:compress|tar|zip|archive)\s+(?:folder\s+|dir\s+|directory\s+|file\s+)?['\"]?(?P<src>[a-zA-Z0-9_\-\.\/~]+)['\"]?\s+(?:to|into|as)\s+['\"]?(?P<dest>[a-zA-Z0-9_\-\.\/~]+)['\"]?$", clean, re.IGNORECASE)
+        if m:
+            src = m.group("src").strip()
+            dest = m.group("dest").strip()
+            if dest.endswith((".tar.gz", ".tgz")):
+                cmd = f"tar -czf '{dest}' '{src}'"
+            elif dest.endswith(".tar.bz2"):
+                cmd = f"tar -cjf '{dest}' '{src}'"
+            elif dest.endswith(".tar"):
+                cmd = f"tar -cf '{dest}' '{src}'"
+            elif dest.endswith(".zip"):
+                cmd = f"zip -r '{dest}' '{src}'"
+            else:
+                dest = f"{dest}.tar.gz"
+                cmd = f"tar -czf '{dest}' '{src}'"
+            return {
+                "command": cmd,
+                "src": src,
+                "dest": dest,
+                "description": f"Compresses '{src}' into archive '{dest}'.",
+                "intent": "archive_create",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.25,
+                "rollback_command": f"rm -f '{dest}'",
+                "explanation": f"I will compress '{src}' into '{dest}'.",
+                "explanation_paragraph": f"The assistant prepared the archive command `{cmd}` to pack and compress the target into `{dest}`."
+            }
+
+        # e.g. "extract archive project.tar.gz to /tmp", "unzip data.zip to /tmp", "extract data.zip"
+        m = re.search(r"^(?:please\s+)?(?:extract|uncompress|untar|unzip|decompress)\s+(?:archive\s+|file\s+)?['\"]?(?P<src>[a-zA-Z0-9_\-\.\/~]+)['\"]?(?:\s+(?:to|into|in)\s+['\"]?(?P<dest>[a-zA-Z0-9_\-\.\/~]+)['\"]?)?$", clean, re.IGNORECASE)
+        if m:
+            src = m.group("src").strip()
+            dest = (m.group("dest") or ".").strip()
+            if src.endswith((".tar.gz", ".tgz")):
+                cmd = f"mkdir -p '{dest}' && tar -xzf '{src}' -C '{dest}'"
+            elif src.endswith(".tar.bz2"):
+                cmd = f"mkdir -p '{dest}' && tar -xjf '{src}' -C '{dest}'"
+            elif src.endswith(".tar"):
+                cmd = f"mkdir -p '{dest}' && tar -xf '{src}' -C '{dest}'"
+            elif src.endswith(".zip"):
+                cmd = f"mkdir -p '{dest}' && unzip -q '{src}' -d '{dest}'"
+            else:
+                cmd = f"mkdir -p '{dest}' && tar -xf '{src}' -C '{dest}'"
+            return {
+                "command": cmd,
+                "src": src,
+                "dest": dest,
+                "description": f"Extracts archive '{src}' into '{dest}'.",
+                "intent": "archive_extract",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.30,
+                "rollback_command": None,
+                "explanation": f"I will extract archive '{src}' into '{dest}'.",
+                "explanation_paragraph": f"The assistant compiled your request into `{cmd}`, unpacking the contents into the destination folder."
+            }
+
+        # ---------------------------------------------------------------------
+        # 5. Advanced File Search & Discovery
+        # ---------------------------------------------------------------------
+        # e.g. "find all pdf files in Downloads", "find all python files in src"
+        m = re.search(r"^(?:please\s+)?(?:find|show|list|search\s+for)\s+(?:all\s+)?(?P<ext>[a-zA-Z0-9]+)\s+files\s+(?:in|under|inside)\s+['\"]?(?P<dir>[a-zA-Z0-9_\-\.\/~]+)['\"]?$", clean, re.IGNORECASE)
+        if m:
+            ext = m.group("ext").lower().lstrip(".")
+            t_dir = os.path.expanduser(m.group("dir").strip())
+            cmd = f"find '{t_dir}' -type f -iname '*.{ext}' 2>/dev/null"
+            return {
+                "command": cmd,
+                "description": f"Searches '{t_dir}' for all .{ext} files.",
+                "intent": "file_find",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will find all .{ext} files in '{t_dir}'.",
+                "explanation_paragraph": f"The assistant queried the filesystem using `find '{t_dir}' -type f -iname '*.{ext}'` to locate matching files."
+            }
+
+        # e.g. "find files larger than 100MB in Downloads", "find big files in ~"
+        m = re.search(r"^(?:please\s+)?find\s+files\s+larger\s+than\s+(?P<size>[0-9]+)\s*(?P<unit>mb|gb|kb|m|g|k)?\s+(?:in|under|inside)\s+['\"]?(?P<dir>[a-zA-Z0-9_\-\.\/~]+)['\"]?$", clean, re.IGNORECASE)
+        if m:
+            size = m.group("size")
+            unit = (m.group("unit") or "M").upper()[0]
+            t_dir = os.path.expanduser(m.group("dir").strip())
+            cmd = f"find '{t_dir}' -type f -size +{size}{unit} -exec ls -lh {{}} + 2>/dev/null | sort -k5 -rh"
+            return {
+                "command": cmd,
+                "description": f"Finds files larger than {size}{unit} in '{t_dir}'.",
+                "intent": "storage_find_large",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will find files larger than {size}{unit} in '{t_dir}'.",
+                "explanation_paragraph": f"The assistant compiled a search filter for files exceeding {size}{unit} in `{t_dir}`."
+            }
+
+        # e.g. "search for 'TODO' in src", "search for text 'error' in logs"
+        m = re.search(r"^(?:please\s+)?search\s+(?:for\s+)?(?:text|string|pattern|word)?\s*['\"](?P<pattern>[^'\"]+)['\"]\s+(?:in|under|inside)\s+['\"]?(?P<dir>[a-zA-Z0-9_\-\.\/~]+)['\"]?$", clean, re.IGNORECASE)
+        if m:
+            pat = m.group("pattern").strip()
+            t_dir = os.path.expanduser(m.group("dir").strip())
+            cmd = f"grep -rnI '{pat}' '{t_dir}' 2>/dev/null | head -n 30"
+            return {
+                "command": cmd,
+                "description": f"Searches for '{pat}' inside files in '{t_dir}'.",
+                "intent": "file_find",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will search for text '{pat}' in '{t_dir}'.",
+                "explanation_paragraph": f"The assistant compiled `grep -rnI '{pat}' '{t_dir}' | head -n 30` to search matching file contents."
+            }
+
+        # ---------------------------------------------------------------------
+        # 6. Git & Developer Operations
+        # ---------------------------------------------------------------------
+        if re.search(r"^(?:git\s+status|show\s+git\s+status|check\s+git\s+status)$", clean, re.IGNORECASE):
+            cmd = "git status"
+            return {
+                "command": cmd,
+                "description": "Shows working tree status in the active Git repository.",
+                "intent": "git_status",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will display the current git working tree status.",
+                "explanation_paragraph": "The assistant executed `git status` to check staged, unstaged, and untracked changes."
+            }
+
+        if re.search(r"^(?:git\s+branch|show\s+git\s+branch(?:es)?|list\s+git\s+branch(?:es)?)$", clean, re.IGNORECASE):
+            cmd = "git branch -a"
+            return {
+                "command": cmd,
+                "description": "Lists local and remote Git branches.",
+                "intent": "git_branch",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will list all active Git branches.",
+                "explanation_paragraph": "The assistant executed `git branch -a`."
+            }
+
+        if re.search(r"^(?:git\s+log|show\s+git\s+log|show\s+recent\s+commits?)$", clean, re.IGNORECASE):
+            cmd = "git log --oneline -n 15"
+            return {
+                "command": cmd,
+                "description": "Displays the last 15 Git commit logs.",
+                "intent": "git_log",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will display the recent Git commit history.",
+                "explanation_paragraph": "The assistant executed `git log --oneline -n 15`."
+            }
+
+        if re.search(r"^(?:git\s+pull|pull\s+latest\s+changes?)$", clean, re.IGNORECASE):
+            cmd = "git pull"
+            return {
+                "command": cmd,
+                "description": "Fetches and integrates changes from the remote repository.",
+                "intent": "git_pull",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.35,
+                "explanation": "I will pull the latest changes from the remote repository.",
+                "explanation_paragraph": "The assistant executed `git pull`."
+            }
+
+        # e.g. "run tests", "run pytest", "execute test suite"
+        if re.search(r"^(?:run\s+tests?|run\s+pytest|execute\s+test\s+suite|pytest)$", clean, re.IGNORECASE):
+            cmd = "pytest || python3 -m unittest"
+            return {
+                "command": cmd,
+                "description": "Executes automated project test suite using pytest or unittest.",
+                "intent": "dev_tests",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.10,
+                "explanation": "I will execute the project test suite.",
+                "explanation_paragraph": "The assistant dispatched `pytest` to run automated test cases."
+            }
+
         # 3. Web & Browser Launching
         # e.g. "open YouTube", "open lead code platform", "launch leetcode", "open brave browser"
         m = re.search(r"^(?:please\s+)?(?:open|launch|start|browse|play|visit|go\s+to)\s+(?P<target>.+)$", clean, re.IGNORECASE)
@@ -209,9 +507,11 @@ class NaturalLanguageCompiler:
                     "explanation_paragraph": f"The natural language assistant converted the target URL into `xdg-open '{url}'`, which triggers your system's default desktop web browser to navigate to the specified page."
                 }
 
-            # Check popular sites dictionary
+            # Check popular sites dictionary (word boundary match)
             for site_key, site_url in cls.POPULAR_SITES.items():
-                if re.search(rf"\b{re.escape(site_key)}\b", target, re.IGNORECASE):
+                if target == site_key or target == f"my {site_key}" or re.search(rf"\b{re.escape(site_key)}\b", target, re.IGNORECASE):
+                    if site_key == "x" and ("firefox" in target or "matrix" in target or "linux" in target):
+                        continue
                     return {
                         "command": f"xdg-open '{site_url}'",
                         "url": site_url,
@@ -226,7 +526,14 @@ class NaturalLanguageCompiler:
             # Check desktop applications
             for app_key, app_cmds in cls.DESKTOP_APPS.items():
                 if target == app_key or target == f"my {app_key}" or target == f"the {app_key}":
-                    cmd = app_cmds[0]
+                    cmd = None
+                    for candidate in app_cmds:
+                        base_bin = candidate.split()[0]
+                        if shutil.which(base_bin):
+                            cmd = candidate
+                            break
+                    if not cmd:
+                        cmd = app_cmds[0]
                     return {
                         "command": cmd,
                         "url": "https://google.com" if "http" in cmd else "",
@@ -238,22 +545,24 @@ class NaturalLanguageCompiler:
                         "explanation_paragraph": f"The assistant recognized your request to launch the '{app_key}' desktop application and dispatched the system binary command `{cmd}`."
                     }
 
-            # Check standard named folders (e.g. "open downloads", "open my documents folder")
-            cleaned_target = re.sub(r"^(?:my|the)\s+", "", target)
+            # Check standard named folders (e.g. "open downloads", "open my documents folder", "open downlaods")
+            cleaned_target = re.sub(r"^(?:my\s+|the\s+)", "", target)
+            cleaned_target = re.sub(r"^(?:folder\s+|dir\s+|directory\s+)", "", cleaned_target)
             cleaned_target = re.sub(r"\s+(?:folder|dir|directory)$", "", cleaned_target).strip()
             if cleaned_target in cls.STANDARD_FOLDERS:
-                folder_path = cls.STANDARD_FOLDERS[cleaned_target]
-                expanded_path = os.path.expanduser(folder_path)
-                cmd = f"xdg-open '{expanded_path}'"
+                raw_folder = cls.STANDARD_FOLDERS[cleaned_target]
+                folder_path = os.path.expanduser(raw_folder)
+                cmd = f"xdg-open '{folder_path}'"
+                display_name = cleaned_target.capitalize()
                 return {
                     "command": cmd,
-                    "path": expanded_path,
+                    "path": folder_path,
                     "description": f"Opens '{folder_path}' in system file manager.",
                     "intent": "desktop_open_folder",
                     "safety_level": "READ_ONLY",
                     "risk_score": 0.05,
-                    "explanation": f"I will open the '{cleaned_target.capitalize()}' folder in your file manager.",
-                    "explanation_paragraph": f"The assistant parsed your request to view the {cleaned_target.capitalize()} directory and executed `xdg-open '{expanded_path}'` to launch your system's graphical file manager."
+                    "explanation": f"I will open the '{display_name}' folder in your file manager.",
+                    "explanation_paragraph": f"The assistant parsed your request to view the {display_name} directory and executed `xdg-open '{folder_path}'` to launch your system's graphical file manager."
                 }
 
             # Check domain name patterns (e.g. "open amazon.in", "open wikipedia.org")
@@ -270,22 +579,43 @@ class NaturalLanguageCompiler:
                     "explanation_paragraph": f"The assistant recognized the web domain '{orig_target}' and executed `xdg-open '{url}'` to launch the webpage in your default browser."
                 }
 
-            # Check arbitrary folder open (e.g. "open my DSA folder", "open folder Divya")
-            m_folder = re.search(r"^(?:my\s+|the\s+)?(?P<fld>[a-zA-Z0-9_\-\.]+)\s+folder$", orig_target, re.IGNORECASE)
-            if m_folder:
-                fld = m_folder.group("fld").strip()
-                home_target = os.path.expanduser(f"~/{fld}")
-                cmd = f"xdg-open '{home_target}' 2>/dev/null || xdg-open './{fld}' 2>/dev/null || xdg-open ~"
-                return {
-                    "command": cmd,
-                    "path": home_target,
-                    "description": f"Opens folder '{fld}' in default file manager.",
-                    "intent": "desktop_open_folder",
-                    "safety_level": "READ_ONLY",
-                    "risk_score": 0.05,
-                    "explanation": f"I will open the '{fld}' folder in your file manager.",
-                    "explanation_paragraph": f"The assistant resolved the folder reference '{fld}' and dispatched `xdg-open` to reveal the directory in your desktop file manager."
-                }
+            # Check arbitrary folder open (e.g. "open my DSA folder", "open folder Divya", "open Divya folder")
+            COMMON_SERVICES = {"nginx", "apache2", "docker", "mysql", "mariadb", "postgresql", "redis", "ssh", "sshd", "ufw", "cron", "crond", "systemd", "iptables"}
+            if target not in COMMON_SERVICES and not target.endswith(".service"):
+                m_folder = re.search(r"^(?:my\s+|the\s+)?(?:folder\s+|dir\s+|directory\s+)?(?P<fld>[a-zA-Z0-9_\-\.\/~ ]+?)(?:\s+(?:folder|dir|directory))?$", orig_target, re.IGNORECASE)
+                if m_folder:
+                    fld = m_folder.group("fld").strip()
+                    if fld.lower() not in COMMON_SERVICES:
+                        from ops_assistant.tools.desktop_ops import find_target_folder
+                        discovered = find_target_folder(fld)
+                        if discovered:
+                            target_path = str(discovered)
+                            cmd = f"xdg-open '{target_path}'"
+                            return {
+                                "command": cmd,
+                                "path": target_path,
+                                "description": f"Opens discovered folder '{target_path}' in system file manager.",
+                                "intent": "desktop_open_folder",
+                                "safety_level": "READ_ONLY",
+                                "risk_score": 0.05,
+                                "explanation": f"I discovered the '{fld}' folder at `{target_path}` and will open it.",
+                                "explanation_paragraph": f"The assistant scanned your computer, located `{target_path}`, and dispatched `xdg-open '{target_path}'` to reveal it in your file manager."
+                            }
+                        elif ("folder" in clean.lower() or "dir" in clean.lower() or "directory" in clean.lower() or "/" in fld or fld.startswith("~")):
+                            home_target = os.path.expanduser(f"~/{fld}") if not fld.startswith(("/", "~", ".")) else os.path.expanduser(fld)
+                            user_home = os.path.expanduser("~")
+                            clean_fld = shlex.quote(fld)
+                            cmd = f"TARGET=$(find ~ -maxdepth 5 -type d -iname {clean_fld} ! -path '*/.*' ! -path '*/node_modules/*' 2>/dev/null | head -n 1); if [ -n \"$TARGET\" ]; then xdg-open \"$TARGET\"; elif [ -d '{home_target}' ]; then xdg-open '{home_target}'; else xdg-open '{user_home}'; fi"
+                            return {
+                                "command": cmd,
+                                "path": home_target,
+                                "description": f"Searches computer for '{fld}' and opens it in default file manager.",
+                                "intent": "desktop_open_folder",
+                                "safety_level": "READ_ONLY",
+                                "risk_score": 0.05,
+                                "explanation": f"I will search your computer for '{fld}' and open it in your file manager.",
+                                "explanation_paragraph": f"The assistant synthesized a filesystem search command to dynamically find `{fld}` across your directories and open it in your graphical file manager."
+                            }
 
         # 3.5 File Organization & Moves (e.g. "move my downloaded photos into a folder called photos")
         m_move = re.search(
@@ -618,7 +948,7 @@ class NaturalLanguageCompiler:
             }
 
         m_del = re.search(r"\b(?:delete|trash|remove)\s+(?:the\s+)?(?:file\s+|folder\s+|directory\s+)?(?P<target>[\w\.\-\/~]+)\b", clean, re.IGNORECASE)
-        if m_del and not any(kw in clean.lower() for kw in ("package", "app", "application", "service", "daemon", "logs", "cache")):
+        if m_del and not any(kw in clean.lower() for kw in ("package", "app", "application", "service", "daemon", "logs", "cache", "temp", "temporary", "trash", "largest", "biggest")):
             tgt = m_del.group("target")
             return {
                 "command": f"gio trash '{tgt}' 2>/dev/null || rm -rf '{tgt}'",
@@ -675,7 +1005,7 @@ class NaturalLanguageCompiler:
             return {
                 "command": "upower -i $(upower -e 2>/dev/null | grep 'BAT' | head -n 1) 2>/dev/null || acpi -b 2>/dev/null || cat /sys/class/power_supply/BAT*/capacity 2>/dev/null || echo 'AC Power / No battery detected'",
                 "description": "Reports live battery percentage, health, and power charging state.",
-                "intent": "generic_command",
+                "intent": "system_battery",
                 "safety_level": "READ_ONLY",
                 "risk_score": 0.05,
                 "explanation": "I will check battery charge level and health.",
@@ -716,7 +1046,19 @@ class NaturalLanguageCompiler:
             }
 
         # 4. System Resource & Health Inquiries
-        # e.g. "check my CPU uses", "check ram", "how much memory is free"
+        # e.g. "my laptop is slow", "check my CPU uses", "check ram", "how much memory is free"
+        if re.search(r"\b(?:my\s+)?(?:laptop|pc|computer|system)\s+(?:is\s+)?(?:slow|laggy|lagging|freezing|stuck|sluggish)\b|\b(?:why\s+is\s+my\s+)?(?:laptop|pc|computer|system)\s+(?:so\s+)?(?:slow|laggy)\b", clean, re.IGNORECASE):
+            cmd = "ps aux --sort=-%cpu,-%mem | head -n 12"
+            return {
+                "command": cmd,
+                "description": "Identifies high CPU and memory resource processes causing system slowdown.",
+                "intent": "system_performance_audit",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will inspect high resource processes, CPU load, and memory bottlenecks.",
+                "explanation_paragraph": "The assistant compiled your performance query into `ps aux --sort=-%cpu,-%mem | head -n 12`, pinpointing the highest CPU and RAM consuming processes responsible for system slowdowns."
+            }
+
         if re.search(r"\b(?:check|show|get|view|inspect)\s+(?:my\s+)?(?:cpu|processor)(?:\s+(?:uses|usage|load|status|utilization))?\b", clean, re.IGNORECASE) or clean.lower() in ("cpu uses", "cpu usage", "check cpu"):
             cmd = "top -b -n 1 | head -n 15"
             return {
@@ -753,9 +1095,34 @@ class NaturalLanguageCompiler:
                 "explanation_paragraph": "The assistant compiled your request into `df -h`, reporting total capacity, used space, free blocks, and mount points across all active storage filesystems."
             }
 
-        # 5. Network Information
-        # e.g. "what is my ip", "show my ip address"
-        if re.search(r"\b(?:what\s+is\s+my|show\s+my|get\s+my|check\s+my)?\s*(?:ip|ip\s+address|network\s+ip)\b", clean, re.IGNORECASE):
+        # 8. Root & Superuser Shell Elevation
+        if re.search(r"^(?:root|root\s+user|switch\s+to\s+root|login\s+as\s+root|become\s+root|elevate\s+to\s+root|root\s+shell|root\s+terminal|run\s+as\s+root|sudo\s+su|su\s+-?|to\s+root)$", clean, re.IGNORECASE):
+            cmd = "sudo -i"
+            return {
+                "command": cmd,
+                "description": "Opens an interactive root superuser login shell.",
+                "intent": "system_root_shell",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.50,
+                "explanation": "I will open an interactive root login shell.",
+                "explanation_paragraph": "The assistant converted your elevation request into `sudo -i`, launching an interactive login shell with root superuser environment and privileges."
+            }
+
+        # 5. Network Information & Public IP
+        # e.g. "what is my public ip", "what is my ip"
+        if re.search(r"\b(?:what\s+is\s+my|show\s+my|get\s+my|check\s+my)?\s*(?:public\s+ip|external\s+ip|wan\s+ip)\b", clean, re.IGNORECASE):
+            cmd = "curl -s https://ifconfig.me || curl -s https://api.ipify.org"
+            return {
+                "command": cmd,
+                "description": "Fetches public WAN IP address from remote resolver.",
+                "intent": "network_status",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will fetch your public WAN IP address.",
+                "explanation_paragraph": "The assistant queried an external echo service to retrieve your gateway IP."
+            }
+
+        if re.search(r"\b(?:what\s+is\s+my|show\s+my|get\s+my|check\s+my)?\s*(?:ip|ip\s+address|network\s+ip|local\s+ip)\b", clean, re.IGNORECASE):
             cmd = "ip -br a || ifconfig"
             return {
                 "command": cmd,
@@ -855,6 +1222,120 @@ class NaturalLanguageCompiler:
                 "explanation_paragraph": f"The assistant compiled your request into `mv '{src}' '{dst}'`, relocating or renaming the specified file path in your working directory."
             }
 
+        # 9. Move / Copy by File Extension
+        # e.g. "move all PDF files into Documents", "move *.pdf to ~/Documents", "copy all images into Pictures"
+        m_move_ext = re.search(r"^(?:please\s+)?(?P<action>move|copy)\s+(?:all\s+)?(?:\*\.)?(?P<ext>[a-zA-Z0-9]+)\s+(?:files?\s+)?(?:in|into|to)\s+(?P<dst>[a-zA-Z0-9_\-\.\/~]+)$", clean, re.IGNORECASE)
+        if m_move_ext:
+            act_verb = m_move_ext.group("action").lower()
+            ext = m_move_ext.group("ext").lower()
+            dst = os.path.expanduser(m_move_ext.group("dst").strip())
+            bin_cmd = "mv" if act_verb == "move" else "cp -r"
+            cmd = f"mkdir -p '{dst}' && find . -maxdepth 1 -iname '*.{ext}' -exec {bin_cmd} {{}} '{dst}/' \\;"
+            return {
+                "command": cmd,
+                "description": f"{act_verb.capitalize()}s all .{ext} files into '{dst}'.",
+                "intent": f"file_{act_verb}",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.30,
+                "rollback_command": None,
+                "explanation": f"I will {act_verb} all .{ext} files into '{dst}'.",
+                "explanation_paragraph": f"The assistant compiled your instruction into `mkdir -p '{dst}' && find . -maxdepth 1 -iname '*.{ext}' -exec {bin_cmd} {{}} '{dst}/' \\;`, safely relocating matching .{ext} files into the target folder."
+            }
+
+        # 10. Web Search (e.g. "search for Python tutorials", "search google for python tutorials")
+        m_search = re.search(r"^(?:please\s+)?search\s+(?:for|google\s+for|on\s+google\s+for|the\s+web\s+for)\s+(?P<query>.+)$", clean, re.IGNORECASE)
+        if m_search:
+            s_query = m_search.group("query").strip()
+            import urllib.parse
+            encoded = urllib.parse.quote_plus(s_query)
+            search_url = f"https://www.google.com/search?q={encoded}"
+            return {
+                "command": f"xdg-open '{search_url}'",
+                "url": search_url,
+                "description": f"Searches Google for '{s_query}' in default web browser.",
+                "intent": "desktop_open_browser",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": f"I will search Google for '{s_query}'.",
+                "explanation_paragraph": f"The assistant compiled your web search query into `xdg-open '{search_url}'`, launching your default browser directly to the search results."
+            }
+
+        # 11. Delete Temporary Files / Clean Cache
+        if re.search(r"\b(?:clean|delete|clear|remove|purge)\s+(?:all\s+)?(?:temp|temporary|cache)\s*(?:files|data)?\b", clean, re.IGNORECASE):
+            cmd = "rm -rf /tmp/* ~/.cache/* 2>/dev/null || true"
+            return {
+                "command": cmd,
+                "description": "Purges temporary system files and user application cache.",
+                "intent": "storage_clean_temp",
+                "safety_level": "MODIFYING",
+                "risk_score": 0.40,
+                "explanation": "I will clean up temporary files in /tmp and ~/.cache.",
+                "explanation_paragraph": "The assistant compiled your request into `rm -rf /tmp/* ~/.cache/*`, reclaiming disk capacity by purging transient cache and ephemeral temporary files."
+            }
+
+        # 13. Contextual Largest File Deletion / Finding in Specific Directory
+        # e.g. "delete the largest file in '/home/god/Downloads'", "find the largest file in '/home/god/Downloads'"
+        m_largest = re.search(r"^(?:please\s+)?(?P<action>delete|remove|erase|find|show|locate)\s+(?:the\s+)?(?:largest|biggest)\s+file\s+(?:in|under|inside)\s+['\"]?(?P<dir>[^'\"]+?)['\"]?$", clean, re.IGNORECASE)
+        if m_largest:
+            action = m_largest.group("action").lower()
+            t_dir = os.path.expanduser(m_largest.group("dir").strip())
+            if action in ("delete", "remove", "erase"):
+                cmd = (
+                    f"largest=$(find '{t_dir}' -maxdepth 2 -type f -printf '%s %p\\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-); "
+                    f"if [ -n \"$largest\" ]; then rm -f \"$largest\" && echo \"Deleted largest file: $largest\"; "
+                    f"else echo \"No files found in {t_dir}\"; fi"
+                )
+                return {
+                    "command": cmd,
+                    "path": t_dir,
+                    "description": f"Finds and deletes the largest file inside '{t_dir}'.",
+                    "intent": "file_delete_largest",
+                    "safety_level": "HIGH_RISK",
+                    "risk_score": 0.70,
+                    "rollback_command": None,
+                    "explanation": f"I will locate and delete the largest file in '{t_dir}'.",
+                    "explanation_paragraph": f"The assistant resolved your contextual request to `{t_dir}`, located the largest file by byte size, and prepared a safe single-file deletion."
+                }
+            else:
+                cmd = f"find '{t_dir}' -maxdepth 2 -type f -exec ls -lh {{}} + 2>/dev/null | sort -k5 -rh | head -n 10"
+                return {
+                    "command": cmd,
+                    "path": t_dir,
+                    "description": f"Lists largest files in '{t_dir}'.",
+                    "intent": "file_find_large",
+                    "safety_level": "READ_ONLY",
+                    "risk_score": 0.05,
+                    "explanation": f"I will list the largest files in '{t_dir}'.",
+                    "explanation_paragraph": f"The assistant searched `{t_dir}` and formatted the largest files by size."
+                }
+
+        # ---------------------------------------------------------------------
+        # 14. Battery, GPU & Hardware Sensors
+        # ---------------------------------------------------------------------
+        if re.search(r"\b(?:check|show|view|get)\s+(?:my\s+)?(?:battery|power|charge)(?:\s+(?:status|percentage|level))?\b", clean, re.IGNORECASE):
+            cmd = "upower -i $(upower -e | grep 'BAT' | head -n 1) 2>/dev/null || cat /sys/class/power_supply/BAT*/capacity 2>/dev/null || acpi -b 2>/dev/null || echo 'Battery status unavailable'"
+            return {
+                "command": cmd,
+                "description": "Queries battery charge level and power supply state.",
+                "intent": "system_battery",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will check your battery status and charge percentage.",
+                "explanation_paragraph": "The assistant inspected hardware power supplies using upower/sysfs."
+            }
+
+        if re.search(r"\b(?:check|show|view|get)\s+(?:my\s+)?(?:gpu|graphics|vram|nvidia)(?:\s+(?:info|status|usage|specs))?\b", clean, re.IGNORECASE):
+            cmd = "nvidia-smi 2>/dev/null || lspci | grep -i -E 'vga|3d|display' || echo 'No dedicated GPU utility detected'"
+            return {
+                "command": cmd,
+                "description": "Displays GPU hardware acceleration and VRAM statistics.",
+                "intent": "hardware_profile",
+                "safety_level": "READ_ONLY",
+                "risk_score": 0.05,
+                "explanation": "I will inspect your graphics card and GPU statistics.",
+                "explanation_paragraph": "The assistant queried GPU state using `nvidia-smi` and PCI device scans."
+            }
+
         return None
 
 
@@ -863,43 +1344,13 @@ def generate_natural_explanation(query: str, command: str, returncode: int = 0, 
     Generates a clear, informative natural language explanation paragraph for any command.
     Explains the purpose, impact on the filesystem/system, and execution outcome.
     """
-    cmd = command.strip()
-    tokens = cmd.split()
-    base = tokens[0] if tokens else "command"
-    if base == "sudo" and len(tokens) > 1:
-        base = tokens[1]
+    from ops_assistant.explainer.xai import ExecutionOutcomeExplainer
+    res = ExecutionOutcomeExplainer.explain_outcome(
+        command=command,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        query=query
+    )
+    return res.get("natural_explanation") or res.get("explanation_paragraph", f"Executed `{command}` with exit code {returncode}.")
 
-    if "mkdir" in cmd:
-        target = cmd.replace("mkdir", "").replace("-p", "").strip().strip("'\"")
-        if returncode == 0:
-            return f"Successfully created the directory '{target}'. The system verified that the path is now provisioned on the filesystem and ready for files."
-        return f"Attempted to create the directory '{target}', but the operation exited with code {returncode}. Stderr: {stderr.strip()}"
-
-    if "xdg-open" in cmd:
-        target = cmd.replace("xdg-open", "").strip().strip("'\"")
-        if "http" in target:
-            return f"Launched your default web browser to '{target}'. The browser window is now active on your desktop."
-        return f"Opened '{target}' in your system default desktop application / file manager."
-
-    if "touch" in cmd or ("echo" in cmd and ">" in cmd):
-        return f"Executed file creation command. The target file has been written to disk with the specified contents and file permissions."
-
-    if "top" in cmd or "htop" in cmd:
-        return f"Sampled real-time CPU utilization and system load averages. The CPU load across active cores and system processes is currently running smoothly."
-
-    if "free" in cmd:
-        return f"Queried the Linux kernel memory manager. The system retrieved available physical RAM, cached pages, buffer headroom, and swap utilization."
-
-    if "df" in cmd:
-        return f"Queried filesystem disk partition table. The system retrieved total capacity, allocated space, and free blocks across all mounted disk drives."
-
-    if "systemctl" in cmd:
-        return f"Interfaced with the systemd service manager. The command processed unit state and service daemon lifecycle properties."
-
-    if "tar" in cmd:
-        return f"Processed archive operation. The tar command compressed/extracted the target files according to the decoded options."
-
-    if returncode == 0:
-        return f"Successfully executed the Linux command `{cmd}` (exit code 0). All changes and system requests have completed."
-    else:
-        return f"Executed `{cmd}` with exit code {returncode}. An issue was encountered during execution. Stderr: {stderr.strip()}"

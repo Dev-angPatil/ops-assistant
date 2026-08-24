@@ -3,6 +3,11 @@
 from ops_assistant.tools.safety import CommandSafetyValidator
 from ops_assistant.tools.executor import SafeExecutor
 from ops_assistant.tools.sandbox_probe import EphemeralSandboxProbe, SandboxVerificationResult
+from ops_assistant.tools.terminal_fallback import (
+    TerminalFallbackDetector,
+    TerminalFallbackData,
+    FallbackReason,
+)
 from ops_assistant.tools import (
     desktop_ops,
     download_ops,
@@ -15,6 +20,7 @@ from ops_assistant.tools import (
     security_ops,
     backup_ops,
     proactive_engine,
+    terminal_fallback,
 )
 
 __all__ = [
@@ -22,6 +28,10 @@ __all__ = [
     "SafeExecutor",
     "EphemeralSandboxProbe",
     "SandboxVerificationResult",
+    "TerminalFallbackDetector",
+    "TerminalFallbackData",
+    "FallbackReason",
+
     "desktop_ops",
     "download_ops",
     "storage_ops",
@@ -33,4 +43,6 @@ __all__ = [
     "security_ops",
     "backup_ops",
     "proactive_engine",
+    "terminal_fallback",
 ]
+

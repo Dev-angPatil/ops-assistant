@@ -61,6 +61,44 @@ class TestNLPAndLLMFallback(unittest.TestCase):
         intent = router_with_llm.classify("completely unclassified obscure inquiry that fails regex matching")
         self.assertEqual(intent.type, IntentType.SECURITY_AUDIT)
 
+    def test_agent_automatic_fallback_to_llm_generation(self):
+        from ops_assistant.agent import OpsAssistantAgent
+        from ops_assistant.agent.providers import _parse_llm_json
+
+        # Test _parse_llm_json robustness
+        raw_fence = "```json\n{\n  \"command\": \"find / -name '*.log'\",\n  \"summary\": \"Find logs\"\n}\n```"
+        parsed = _parse_llm_json(raw_fence)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["command"], "find / -name '*.log'")
+
+        raw_plain_cmd = "tar -czf backup.tar.gz /var/www"
+        parsed_plain = _parse_llm_json(raw_plain_cmd)
+        self.assertIsNotNone(parsed_plain)
+        self.assertEqual(parsed_plain["command"], "tar -czf backup.tar.gz /var/www")
+
+        # Mock LLM provider that generates a custom command
+        class CommandMockProvider(LLMProvider):
+            def is_available(self):
+                return True, "Ready"
+            def generate_command(self, query, cwd=None):
+                return {
+                    "command": "find /var/log -type f -name '*.gz' -delete",
+                    "summary": "Delete old gzip compressed logs in /var/log",
+                    "safety_level": "MODIFYING",
+                    "risk_score": 0.45,
+                    "rollback_command": None
+                }
+
+        agent = OpsAssistantAgent(llm_provider=CommandMockProvider())
+        act = agent.execute_agent_action(
+            "purge every gzip log file residing under the var log directory",
+            execute=False
+        )
+        self.assertEqual(act["intent"], "llm_generated_command")
+        self.assertIn("find /var/log", act["command"])
+        self.assertEqual(act["summary"], "Delete old gzip compressed logs in /var/log")
+        self.assertTrue(bool(act.get("explanation_paragraph")))
+
 
 if __name__ == "__main__":
     unittest.main()

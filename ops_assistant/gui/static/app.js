@@ -379,6 +379,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   } catch (e) {}
 
+  // Initialize Real-Time Intelligent Autocomplete
+  initAutocomplete();
+
   // Setup prompt form submit
   const form = document.getElementById('agent-prompt-form');
   if (form) {
@@ -481,6 +484,339 @@ function showToast(message, type = 'info', duration = 3500) {
 }
 
 // ==========================================================================
+// GUI-TO-TERMINAL FALLBACK ENGINE (CLIENT)
+// ==========================================================================
+let currentFallbackData = null;
+let currentFallbackRetryCallback = null;
+
+function showTerminalFallbackModal(fallbackData, retryCallback) {
+  currentFallbackData = fallbackData;
+  currentFallbackRetryCallback = retryCallback;
+  playScifiSound('alert');
+
+  const titleEl = document.getElementById('modal-fallback-reason-title');
+  const expEl = document.getElementById('modal-fallback-explanation');
+  const cmdEl = document.getElementById('modal-fallback-command-text');
+  const copySingleBtn = document.getElementById('modal-fallback-copy-btn');
+  const copyAllBtn = document.getElementById('modal-fallback-copy-all-btn');
+  const runTermBtn = document.getElementById('modal-fallback-run-terminal-btn');
+  const runTermLabel = document.getElementById('modal-fallback-run-terminal-label');
+  const warningBox = document.getElementById('modal-fallback-warning-box');
+  const prereqsList = document.getElementById('modal-fallback-prereqs-list');
+  const expectedOutEl = document.getElementById('modal-fallback-expected-output');
+  const instrContent = document.getElementById('modal-fallback-instructions-content');
+  const badgeEl = document.getElementById('modal-fallback-badge');
+
+  if (titleEl) titleEl.textContent = fallbackData.reason_title || 'Terminal Fallback Mode';
+  if (expEl) expEl.textContent = fallbackData.explanation || 'This command requires execution in your Linux terminal.';
+  
+  const cmdString = fallbackData.multi_command_script || fallbackData.single_command || (fallbackData.commands && fallbackData.commands.join('\n')) || '';
+  if (cmdEl) cmdEl.textContent = cmdString;
+
+  if (badgeEl) {
+    if (fallbackData.requires_sudo) {
+      badgeEl.textContent = 'Sudo Required';
+      badgeEl.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30';
+    } else if (fallbackData.is_destructive) {
+      badgeEl.textContent = 'Destructive';
+      badgeEl.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30';
+    } else {
+      badgeEl.textContent = fallbackData.reason_code || 'Manual Execution';
+      badgeEl.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-cyan-400/20 text-cyan-300 border border-cyan-400/30';
+    }
+  }
+
+  // Warning Box
+  if (warningBox) {
+    if (fallbackData.is_destructive || fallbackData.is_high_risk || (fallbackData.risk_score && fallbackData.risk_score >= 0.65)) {
+      warningBox.classList.remove('hidden');
+    } else {
+      warningBox.classList.add('hidden');
+    }
+  }
+
+  // Copy buttons
+  const isMulti = fallbackData.commands && fallbackData.commands.length > 1;
+  if (copyAllBtn) {
+    if (isMulti) {
+      copyAllBtn.classList.remove('hidden');
+    } else {
+      copyAllBtn.classList.add('hidden');
+    }
+  }
+
+  // Run in terminal
+  if (runTermBtn && runTermLabel) {
+    if (fallbackData.available_terminal) {
+      runTermBtn.classList.remove('hidden');
+      runTermLabel.textContent = `Run in ${fallbackData.available_terminal} ↗`;
+    } else {
+      runTermLabel.textContent = 'Run in Terminal ↗';
+    }
+  }
+
+  // Prerequisites
+  if (prereqsList) {
+    const prereqs = fallbackData.prerequisites || ['Open your standard Linux terminal'];
+    prereqsList.innerHTML = prereqs.map(p => `<div>&bull; ${escapeHtml(p)}</div>`).join('');
+  }
+
+  // Expected Output
+  if (expectedOutEl) {
+    expectedOutEl.textContent = fallbackData.expected_output || 'Command output will print in terminal followed by prompt return.';
+  }
+
+  // Instructions
+  if (instrContent) {
+    const instrs = fallbackData.instructions || [];
+    instrContent.innerHTML = instrs.map(i => `
+      <div class="flex items-start space-x-2.5 py-1">
+        <span class="step-indicator-pill">${i.step || '&bull;'}</span>
+        <div class="flex-1">
+          <div class="font-bold text-white text-xs">${escapeHtml(i.title || '')}</div>
+          <div class="text-slate-300 text-xs mt-0.5 leading-relaxed">${escapeHtml(i.detail || '')}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  openModal('modal-terminal-fallback');
+  if (window.lucide) lucide.createIcons();
+}
+
+async function openTerminalFallbackForCommand(cmd, reason = 'Manual Execution Requested', retryCallback = null) {
+  try {
+    const res = await fetch('/api/terminal/fallback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: cmd, force: true })
+    });
+    const data = await res.json();
+    if (data.fallback) {
+      if (reason && (!data.fallback.reason_title || data.fallback.reason_title === 'Terminal Execution Available')) {
+        data.fallback.reason_title = reason;
+      }
+      showTerminalFallbackModal(data.fallback, retryCallback);
+    }
+  } catch (e) {
+    showToast('Failed to load terminal fallback: ' + e.message, 'error');
+  }
+}
+
+function copyFallbackSingleCommand() {
+  if (!currentFallbackData) return;
+  const cmd = currentFallbackData.single_command || (currentFallbackData.commands && currentFallbackData.commands[0]) || '';
+  if (!cmd) return;
+  copyTextWithFeedback(cmd, 'modal-fallback-copy-btn', 'modal-fallback-copy-btn-text', 'Copied Command! ✓');
+}
+
+function copyFallbackAllCommands() {
+  if (!currentFallbackData) return;
+  const script = currentFallbackData.multi_command_script || (currentFallbackData.commands && currentFallbackData.commands.join('\n')) || '';
+  if (!script) return;
+  copyTextWithFeedback(script, 'modal-fallback-copy-all-btn', 'modal-fallback-copy-all-text', 'Copied All Commands! ✓');
+}
+
+function copyTextWithFeedback(text, btnId, labelId, successText = 'Copied! ✓') {
+  navigator.clipboard.writeText(text).then(() => {
+    playScifiSound('success');
+    showToast('Command copied to clipboard — ready to paste in terminal', 'success', 2500);
+    const btn = document.getElementById(btnId);
+    const label = document.getElementById(labelId);
+    if (btn) {
+      btn.classList.add('btn-copied');
+      if (label) {
+        const origText = label.textContent;
+        label.textContent = successText;
+        setTimeout(() => {
+          btn.classList.remove('btn-copied');
+          label.textContent = origText;
+        }, 2200);
+      }
+    }
+  }).catch(() => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    showToast('Command copied to clipboard', 'success', 2000);
+  });
+}
+
+function toggleFallbackInstructions() {
+  const content = document.getElementById('modal-fallback-instructions-content');
+  const arrow = document.getElementById('modal-fallback-instructions-arrow');
+  if (content) {
+    const isHidden = content.classList.contains('hidden');
+    if (isHidden) {
+      content.classList.remove('hidden');
+      if (arrow) arrow.style.transform = 'rotate(180deg)';
+    } else {
+      content.classList.add('hidden');
+      if (arrow) arrow.style.transform = 'rotate(0deg)';
+    }
+  }
+}
+
+async function launchFallbackInTerminal(cmdOverride = null) {
+  const cmd = cmdOverride || (currentFallbackData ? (currentFallbackData.single_command || currentFallbackData.multi_command_script || (currentFallbackData.commands && currentFallbackData.commands.join(' && '))) : '');
+  if (!cmd) return;
+
+  showToast('Spawning command in native Linux desktop terminal...', 'info');
+  try {
+    const res = await fetch('/api/terminal/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: cmd, hold_open: true })
+    });
+    const data = await res.json();
+    if (data.success) {
+      playScifiSound('success');
+      showToast(`Launched in ${data.terminal || 'Linux terminal'} (PID ${data.pid || ''})`, 'success', 4000);
+    } else {
+      showToast(data.error || 'Failed to spawn terminal. Please copy and run manually.', 'warning', 4000);
+    }
+  } catch (e) {
+    showToast('Terminal spawn request failed: ' + e.message, 'error');
+  }
+}
+
+function retryFallbackExecution() {
+  closeModal('modal-terminal-fallback');
+  if (typeof currentFallbackRetryCallback === 'function') {
+    playScifiSound('execute');
+    currentFallbackRetryCallback();
+  }
+}
+
+function renderTerminalFallbackCardHTML(fb, uid, retryFnCallStr = '') {
+  if (!fb) return '';
+  const singleCmd = fb.single_command || (fb.commands && fb.commands[0]) || '';
+  const multiScript = fb.multi_command_script || (fb.commands && fb.commands.join('\n')) || singleCmd;
+  const isMulti = fb.commands && fb.commands.length > 1;
+  const prereqs = fb.prerequisites || ['Open your Linux terminal'];
+  const instrs = fb.instructions || [];
+
+  return `
+    <div class="terminal-fallback-card p-5 sm:p-6 space-y-4 my-2 text-white">
+      <!-- Fallback Header -->
+      <div class="flex items-center justify-between border-b border-cyan-500/20 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 flex items-center justify-center">
+            <i data-lucide="terminal" class="w-4.5 h-4.5"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="font-bold text-white text-xs sm:text-sm">${escapeHtml(fb.reason_title || 'Terminal Fallback Mode')}</span>
+              <span class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase ${fb.requires_sudo ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/30'}">
+                ${fb.requires_sudo ? 'Sudo Required' : (fb.reason_code || 'Manual Execution')}
+              </span>
+            </div>
+          </div>
+        </div>
+        <span class="text-[10px] font-mono text-cyan-400 font-semibold uppercase tracking-wider">Fallback Activated</span>
+      </div>
+
+      <!-- Human Guidance Message (Never generic Execution Failed) -->
+      <div class="p-3.5 rounded-xl bg-cyan-950/30 border border-cyan-500/25 text-xs font-sans text-slate-200 leading-relaxed space-y-1">
+        <div class="text-[10px] font-bold text-cyan-300 uppercase tracking-wider flex items-center space-x-1">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          <span>Copilot Guidance:</span>
+        </div>
+        <div>${escapeHtml(fb.explanation || 'This command requires a real Linux terminal and cannot be executed directly from the Browser GUI. You can copy the command below and run it in your terminal.')}</div>
+      </div>
+
+      ${(fb.is_destructive || fb.is_high_risk || (fb.risk_score && fb.risk_score >= 0.65)) ? `
+        <div class="p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-xs font-sans text-rose-200 flex items-start space-x-2">
+          <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400 shrink-0 mt-0.5"></i>
+          <div><span class="font-bold text-rose-300">Safety Notice:</span> Destructive/Privileged command. Review target paths carefully before executing in terminal.</div>
+        </div>
+      ` : ''}
+
+      <!-- Command Block with Copy Buttons -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between text-[11px] text-slate-400 font-sans">
+          <span class="uppercase tracking-wider font-semibold">Terminal Command(s):</span>
+          <div class="flex items-center space-x-2">
+            <button id="inline-fb-copy-btn-${uid}" onclick="copyTextWithFeedback('${escapeHtml(singleCmd)}', 'inline-fb-copy-btn-${uid}', 'inline-fb-copy-label-${uid}', 'Copied! ✓')" class="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/20 text-white font-mono text-[11px] transition flex items-center space-x-1">
+              <i data-lucide="copy" class="w-3 h-3"></i>
+              <span id="inline-fb-copy-label-${uid}">Copy Command</span>
+            </button>
+            ${isMulti ? `
+              <button id="inline-fb-copy-all-btn-${uid}" onclick="copyTextWithFeedback('${escapeHtml(multiScript)}', 'inline-fb-copy-all-btn-${uid}', 'inline-fb-copy-all-label-${uid}', 'Copied All! ✓')" class="px-2.5 py-1 rounded-md bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 font-mono text-[11px] transition flex items-center space-x-1">
+                <i data-lucide="copy-check" class="w-3 h-3"></i>
+                <span id="inline-fb-copy-all-label-${uid}">Copy All Commands</span>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="terminal-code-block p-4 font-mono text-xs text-white break-all select-all flex items-start space-x-2.5">
+          <span class="text-cyan-400 select-none font-bold">$</span>
+          <pre class="flex-1 font-semibold text-white whitespace-pre-wrap leading-relaxed">${escapeHtml(multiScript)}</pre>
+        </div>
+      </div>
+
+      <!-- Action Toolbar -->
+      <div class="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-white/10">
+        <div class="flex items-center space-x-2">
+          <button onclick="launchFallbackInTerminal('${escapeHtml(singleCmd)}')" class="btn-editorial-secondary !py-1.5 !px-3 text-xs border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/20">
+            <i data-lucide="external-link" class="w-3.5 h-3.5 text-cyan-300"></i>
+            <span>Run in Terminal ↗</span>
+          </button>
+          <button onclick="const el = document.getElementById('inline-fb-instr-${uid}'); if(el){ el.classList.toggle('hidden'); }" class="btn-editorial-secondary !py-1.5 !px-3 text-xs">
+            <i data-lucide="book-open" class="w-3.5 h-3.5"></i>
+            <span>Show Instructions</span>
+          </button>
+        </div>
+
+        ${retryFnCallStr ? `
+          <button onclick="${retryFnCallStr}" class="btn-editorial-primary !py-1.5 !px-3.5 text-xs">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            <span>Retry Execution</span>
+          </button>
+        ` : ''}
+      </div>
+
+      <!-- Context Info: Prerequisites & Expected Output -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px] font-sans pt-1">
+        <div class="p-3 rounded-xl bg-black/40 border border-white/10 space-y-1">
+          <span class="text-slate-400 font-bold uppercase text-[10px] block">📌 Prerequisites:</span>
+          <div class="space-y-0.5 text-slate-300">
+            ${prereqs.map(p => `<div>&bull; ${escapeHtml(p)}</div>`).join('')}
+          </div>
+        </div>
+        <div class="p-3 rounded-xl bg-black/40 border border-white/10 space-y-1">
+          <span class="text-emerald-400 font-bold uppercase text-[10px] block">🔮 Expected Output:</span>
+          <p class="text-slate-300 leading-relaxed">${escapeHtml(fb.expected_output || 'Output prints in terminal followed by exit code 0.')}</p>
+        </div>
+      </div>
+
+      <!-- Collapsible Instructions -->
+      <div id="inline-fb-instr-${uid}" class="hidden p-3.5 rounded-xl bg-black/60 border border-cyan-500/20 space-y-2 text-xs font-sans text-slate-200">
+        <div class="font-bold text-cyan-300 text-xs flex items-center space-x-1.5">
+          <i data-lucide="list-ordered" class="w-3.5 h-3.5"></i>
+          <span>Step-by-Step Manual Execution Instructions:</span>
+        </div>
+        <div class="space-y-2 pt-1">
+          ${instrs.map(i => `
+            <div class="flex items-start space-x-2">
+              <span class="step-indicator-pill">${i.step || '&bull;'}</span>
+              <div class="flex-1">
+                <div class="font-bold text-white text-xs">${escapeHtml(i.title || '')}</div>
+                <div class="text-slate-300 text-[11px] leading-relaxed">${escapeHtml(i.detail || '')}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ==========================================================================
 // COMMAND EXECUTION PERMISSION MODAL & GATE
 // ==========================================================================
 function requestCommandPermission(options) {
@@ -506,6 +842,7 @@ function requestCommandPermission(options) {
     const rollbackEl = document.getElementById('modal-perm-rollback');
     const approveBtn = document.getElementById('modal-perm-approve-btn');
     const dryRunBtn = document.getElementById('modal-perm-dryrun-btn');
+    const fallbackBtn = document.getElementById('modal-perm-fallback-btn');
 
     if (!modal) return resolve(false);
 
@@ -525,6 +862,7 @@ function requestCommandPermission(options) {
     const cleanup = () => {
       approveBtn.onclick = null;
       dryRunBtn.onclick = null;
+      if (fallbackBtn) fallbackBtn.onclick = null;
       closeModal('modal-permission');
     };
 
@@ -543,6 +881,14 @@ function requestCommandPermission(options) {
       resolve(false);
     };
 
+    if (fallbackBtn) {
+      fallbackBtn.onclick = () => {
+        cleanup();
+        openTerminalFallbackForCommand(command, 'Authorized Terminal Execution', onApprove);
+        resolve(false);
+      };
+    }
+
     openModal('modal-permission');
     if (window.lucide) lucide.createIcons();
   });
@@ -555,6 +901,7 @@ function copyModalCommand() {
     showToast('Command copied to clipboard', 'info', 2000);
   }
 }
+
 
 async function executeDryRunSandbox(cmd) {
   showToast('Testing command in ephemeral CoW sandbox...', 'info');
@@ -603,6 +950,7 @@ function switchTab(tabId) {
   if (tabId === 'services') loadServices();
   if (tabId === 'network') loadNetwork();
   if (tabId === 'taxonomy') loadTaxonomyScenarios();
+  if (tabId === 'packages') loadInstallerTab();
 
   if (window.lucide) {
     setTimeout(() => lucide.createIcons(), 50);
@@ -1206,6 +1554,35 @@ async function submitAgentPrompt(promptText) {
 
 function renderAgentResponseCard(card, data) {
   playScifiSound('success');
+
+  if (data.is_ambiguous) {
+    let candidatePills = '';
+    if (data.candidates && data.candidates.length > 0) {
+      candidatePills = `
+        <div class="flex flex-wrap gap-2 pt-2">
+          ${data.candidates.map(c => `
+            <button type="button" onclick="submitAgentPrompt('${data.action_template ? data.action_template.replace('{choice}', c) : c}')" class="px-3.5 py-1.5 rounded-full bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30 border border-cyan-400/40 text-xs font-mono transition flex items-center space-x-1.5">
+              <span>👉 ${escapeHtml(c)}</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }
+    card.className = 'avant-card-elevated p-5 sm:p-6 space-y-3 border-amber-500/40 bg-amber-500/5';
+    card.innerHTML = `
+      <div class="space-y-3">
+        <div class="flex items-center space-x-2 text-amber-400 font-bold text-sm">
+          <i data-lucide="help-circle" class="w-4.5 h-4.5"></i>
+          <span>Ambiguity Clarification Required</span>
+        </div>
+        <div class="text-slate-100 text-sm font-sans leading-relaxed">${escapeHtml(data.ambiguity_prompt || data.summary)}</div>
+        ${candidatePills}
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
   const safetyClass = getSafetyBadgeClass(data.safety_level || 'READ_ONLY');
 
   card.className = 'avant-card-elevated p-5 sm:p-6 space-y-4';
@@ -1260,10 +1637,14 @@ function renderAgentResponseCard(card, data) {
               </div>
             ` : ''}
 
-            <div class="flex items-center space-x-2 pt-2 border-t border-white/10">
+            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
               <button onclick="executeCommandDirect('${escapeHtml(c.command)}', '${escapeHtml(c.rollback_command || '')}', this.closest('.avant-card-elevated'))" class="btn-editorial-primary !py-1.5 !px-3 text-xs">
                 <i data-lucide="play" class="w-3 h-3"></i>
                 <span>Execute</span>
+              </button>
+              <button onclick="openTerminalFallbackForCommand('${escapeHtml(c.command)}', 'Manual Terminal Execution', () => executeCommandDirect('${escapeHtml(c.command)}', '${escapeHtml(c.rollback_command || '')}', this.closest('.avant-card-elevated')))" class="btn-editorial-secondary !py-1.5 !px-3 text-xs text-cyan-300 border-cyan-400/30 hover:bg-cyan-500/20" title="Open Terminal Fallback Mode">
+                <i data-lucide="terminal" class="w-3 h-3 text-cyan-300"></i>
+                <span>Terminal Fallback</span>
               </button>
               <button onclick="executeDryRunSandbox('${escapeHtml(c.command)}')" class="btn-editorial-secondary !py-1.5 !px-3 text-xs">
                 <i data-lucide="flask-conical" class="w-3 h-3"></i>
@@ -1298,11 +1679,54 @@ function renderAgentResponseCard(card, data) {
   }
 
   let paragraphHtml = '';
-  if (data.explanation_paragraph && data.explanation_paragraph !== data.summary) {
+  const explanationText = data.ai_explanation || data.natural_explanation || data.explanation_paragraph;
+  if (explanationText && explanationText !== data.summary && (!data.terminal_fallback || !data.terminal_fallback.needs_fallback)) {
     paragraphHtml = `
-      <div class="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/20 text-xs text-slate-200 leading-relaxed font-sans">
-        <span class="text-[10px] text-cyan-300 font-semibold uppercase block mb-1">Ops Explanation:</span>
-        ${escapeHtml(data.explanation_paragraph)}
+      <div class="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/20 text-xs text-slate-200 leading-relaxed font-sans space-y-1">
+        <div class="flex items-center space-x-1.5 font-bold text-cyan-300 text-[10px] uppercase">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          <span>AI Ops Explanation:</span>
+        </div>
+        <div>${escapeHtml(explanationText)}</div>
+      </div>
+    `;
+  }
+
+  let fallbackCardHtml = '';
+  if (data.terminal_fallback && data.terminal_fallback.needs_fallback) {
+    const uid = 'agent-fb-' + Math.random().toString(36).substring(2, 9);
+    const firstCmd = plannedCmds.length > 0 ? plannedCmds[0].command : (data.command || '');
+    fallbackCardHtml = renderTerminalFallbackCardHTML(data.terminal_fallback, uid, firstCmd ? `executeCommandDirect('${escapeHtml(firstCmd)}', '', this.closest('.avant-card-elevated'))` : '');
+  }
+
+  let changesHtml = '';
+  if (data.changes_made && data.changes_made.length > 0) {
+    changesHtml = `
+      <div class="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-1.5 font-sans">
+        <div class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center space-x-1">
+          <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+          <span>System Changes Applied:</span>
+        </div>
+        <div class="space-y-1 text-xs text-emerald-200">
+          ${data.changes_made.map(c => `<div class="flex items-start space-x-1.5"><span class="text-emerald-400 font-bold">&check;</span><span>${escapeHtml(c)}</span></div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  let failureHtml = '';
+  if (data.is_success === false && data.failure_analysis && (!data.terminal_fallback || !data.terminal_fallback.needs_fallback)) {
+    failureHtml = `
+      <div class="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 space-y-2 font-sans text-xs">
+        <div class="flex items-center space-x-1.5 text-rose-300 font-bold text-xs">
+          <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+          <span>Root Cause Diagnosis: ${escapeHtml(data.failure_analysis.error_class || 'EXECUTION_ERROR')}</span>
+        </div>
+        <div class="text-slate-200 leading-relaxed">${escapeHtml(data.failure_analysis.diagnosis || '')}</div>
+        <div class="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 leading-relaxed">
+          <span class="font-bold text-emerald-400 block text-[10px] uppercase mb-0.5">💡 AI Recommended Fix:</span>
+          ${escapeHtml(data.failure_analysis.recommendation || '')}
+        </div>
       </div>
     `;
   }
@@ -1321,7 +1745,10 @@ function renderAgentResponseCard(card, data) {
 
     <div class="text-xs sm:text-sm text-white font-sans font-medium leading-relaxed">${escapeHtml(data.summary || 'Analysis complete.')}</div>
     
+    ${fallbackCardHtml}
     ${paragraphHtml}
+    ${changesHtml}
+    ${failureHtml}
     ${stepsHtml}
     ${commandSectionHtml}
     ${outputDetailsHtml}
@@ -1362,26 +1789,86 @@ async function executeCommandDirect(cmd, rollbackCmd, cardEl) {
     });
     const data = await res.json();
 
-    if (data.blocked) {
-      showToast('BLOCKED BY SAFETY MATRIX: ' + data.error, 'error', 5000);
-      return;
-    }
+    const fallback = data.terminal_fallback;
 
-    if (data.success) {
+    if (data.blocked) {
+      showToast('Execution protected by Safety Matrix. Switched to Terminal Fallback Mode.', 'warning', 4500);
+    } else if (data.success) {
       showToast(`Command executed successfully (Exit Code ${data.returncode}) in ${data.latency_ms || 0}ms`, 'success');
     } else {
-      showToast(`Command returned non-zero exit code (${data.returncode})`, 'warning');
+      showToast(`Command requires terminal execution (Exit Code ${data.returncode})`, 'warning', 3500);
     }
 
     if (cardEl) {
       const resultBox = document.createElement('div');
-      resultBox.className = 'p-4 sm:p-5 rounded-2xl bg-black/70 border border-white/10 space-y-2 font-mono text-xs leading-relaxed';
+      resultBox.className = 'p-4 sm:p-5 rounded-2xl bg-black/70 border border-white/10 space-y-3 font-mono text-xs leading-relaxed';
+      
+      const explanationText = data.ai_explanation || data.natural_explanation || data.explanation_paragraph || '';
+      const changes = data.changes_made || [];
+      const failure = data.failure_analysis;
+
+      let explanationSection = '';
+      if (explanationText && (!fallback || !fallback.needs_fallback)) {
+        explanationSection = `
+          <div class="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/30 text-xs font-sans text-slate-200 leading-relaxed space-y-1">
+            <div class="flex items-center space-x-1.5 font-bold text-cyan-300 text-[11px]">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+              <span>AI Execution Explanation:</span>
+            </div>
+            <div>${escapeHtml(explanationText)}</div>
+          </div>
+        `;
+      }
+
+      let changesSection = '';
+      if (changes.length > 0) {
+        changesSection = `
+          <div class="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-1.5">
+            <div class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center space-x-1">
+              <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+              <span>System Changes Applied:</span>
+            </div>
+            <div class="space-y-1 text-xs text-emerald-200 font-sans">
+              ${changes.map(c => `<div class="flex items-start space-x-1.5"><span class="text-emerald-400 font-bold">&check;</span><span>${escapeHtml(c)}</span></div>`).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      let failureOrFallbackSection = '';
+      if (fallback && (fallback.needs_fallback || data.blocked || !data.success)) {
+        const uid = 'exec-fb-' + Math.random().toString(36).substring(2, 9);
+        failureOrFallbackSection = renderTerminalFallbackCardHTML(fallback, uid, `executeCommandDirect('${escapeHtml(cmd)}', '${escapeHtml(rollbackCmd || '')}', this.closest('.avant-card-elevated'))`);
+      } else if (!data.success && failure) {
+        failureOrFallbackSection = `
+          <div class="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/40 space-y-2 font-sans text-xs">
+            <div class="flex items-center space-x-1.5 text-rose-300 font-bold text-xs">
+              <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+              <span>Root Cause Diagnosis: ${escapeHtml(failure.error_class || 'EXECUTION_ERROR')}</span>
+            </div>
+            <div class="text-slate-200 leading-relaxed">${escapeHtml(failure.diagnosis || 'Execution failed.')}</div>
+            <div class="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 leading-relaxed">
+              <span class="font-bold text-emerald-400 block text-[10px] uppercase mb-0.5">💡 AI Recommended Fix:</span>
+              ${escapeHtml(failure.recommendation || 'Verify command syntax and permissions.')}
+            </div>
+          </div>
+        `;
+      }
+
       resultBox.innerHTML = `
         <div class="flex items-center justify-between text-[10px] text-slate-500">
-          <span class="font-bold text-white">&check; Execution Complete</span>
-          <span>Exit: ${data.returncode} | Latency: ${data.latency_ms || 0}ms</span>
+          <span class="font-bold ${data.success ? 'text-emerald-400' : 'text-amber-400'} flex items-center space-x-1">
+            <i data-lucide="${data.success ? 'check-circle' : 'terminal'}" class="w-3.5 h-3.5"></i>
+            <span>${data.success ? 'Execution Succeeded' : (data.blocked ? 'Safety Gate Protected' : 'Terminal Fallback Active')} (Exit: ${data.returncode})</span>
+          </span>
+          <span>Latency: ${data.latency_ms || 0}ms</span>
         </div>
-        <pre class="text-[11px] text-slate-200 overflow-x-auto max-h-36 whitespace-pre-wrap">${escapeHtml(data.stdout || data.stderr || '(No output returned)')}</pre>
+        ${failureOrFallbackSection}
+        ${explanationSection}
+        ${changesSection}
+        ${(!fallback || !fallback.needs_fallback) ? `
+          <pre class="text-[11px] ${data.success ? 'text-slate-200' : 'text-rose-200'} overflow-x-auto max-h-36 whitespace-pre-wrap">${escapeHtml(data.stdout || data.stderr || '(No terminal output returned)')}</pre>
+        ` : ''}
         ${(rollbackCmd || data.rollback_command) ? `
           <div class="pt-2 flex justify-end">
             <button onclick="executeRollback('${escapeHtml(rollbackCmd || data.rollback_command)}')" class="btn-editorial-secondary !py-1 !px-2.5 text-[10px]">
@@ -1398,6 +1885,7 @@ async function executeCommandDirect(cmd, rollbackCmd, cardEl) {
     showToast('Execution failed: ' + e.message, 'error');
   }
 }
+
 
 async function executeRollback(rollbackCmd) {
   if (!rollbackCmd) return;
@@ -1923,43 +2411,413 @@ function promptExecuteRemediation(command, description, safetyLevel, riskScore, 
 }
 
 // ==========================================================================
-// PACKAGE MANAGER
+// AI-POWERED SOFTWARE & DEPENDENCY INSTALLER
 // ==========================================================================
-async function searchPackage() {
-  playScifiSound('scan');
-  const pkg = document.getElementById('pkg-search-input')?.value;
-  const container = document.getElementById('pkg-result-container');
+let currentInstallerPlan = null;
+let currentInstallerSessionId = null;
+let installerEventSource = null;
 
-  if (!pkg || !container) return;
-  container.innerHTML = '<p class="text-slate-400 font-mono">Querying multi-distro package repository...</p>';
+async function loadInstallerTab() {
+  await Promise.all([
+    fetchInstallerCapabilities(),
+    scanProjectDependencies()
+  ]);
+  if (window.lucide) setTimeout(() => lucide.createIcons(), 50);
+}
+
+async function fetchInstallerCapabilities() {
+  try {
+    const res = await fetch('/api/installer/sources');
+    if (res.ok) {
+      const caps = await res.json();
+      const distroBadge = document.getElementById('pkg-distro-badge');
+      const aurBadge = document.getElementById('pkg-aur-badge');
+      const flatpakBadge = document.getElementById('pkg-flatpak-badge');
+
+      if (distroBadge) {
+        distroBadge.textContent = `${(caps.distro_name || 'LINUX').toUpperCase()} (${(caps.package_manager || 'PKG').toUpperCase()})`;
+      }
+      if (aurBadge) {
+        if (caps.has_yay || caps.has_paru) {
+          aurBadge.textContent = caps.has_yay ? 'AUR: YAY' : 'AUR: PARU';
+          aurBadge.classList.remove('hidden');
+        } else {
+          aurBadge.classList.add('hidden');
+        }
+      }
+      if (flatpakBadge) {
+        if (caps.has_flatpak) {
+          flatpakBadge.classList.remove('hidden');
+        } else {
+          flatpakBadge.classList.add('hidden');
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load installer capabilities', e);
+  }
+}
+
+function setInstallerPrompt(text) {
+  const input = document.getElementById('installer-nl-input');
+  if (input) {
+    input.value = text;
+    resolveAndInstall(text);
+  }
+}
+
+async function resolveAndInstall(customPrompt) {
+  playScifiSound('scan');
+  const input = document.getElementById('installer-nl-input');
+  const query = customPrompt || input?.value?.trim();
+
+  if (!query) {
+    showToast('Please enter what you want to install', 'warning');
+    return;
+  }
+
+  const liveCard = document.getElementById('installer-live-card');
+  const btnResolve = document.getElementById('btn-installer-resolve');
+  const targetTitle = document.getElementById('inst-target-title');
+  const targetDesc = document.getElementById('inst-target-desc');
+  const statusBadge = document.getElementById('inst-status-badge');
+  const commandText = document.getElementById('inst-command-text');
+  const successBanner = document.getElementById('inst-success-banner');
+  const failureBanner = document.getElementById('inst-failure-banner');
+  const progressBar = document.getElementById('inst-progress-bar');
+  const phaseLabel = document.getElementById('inst-phase-label');
+  const percentLabel = document.getElementById('inst-percent-label');
+  const logsContainer = document.getElementById('installer-terminal-logs');
+
+  if (btnResolve) {
+    btnResolve.disabled = true;
+    btnResolve.innerHTML = '<span class="animate-spin">⏳</span><span>Planning...</span>';
+  }
+
+  // Reset live view
+  if (liveCard) liveCard.classList.remove('hidden');
+  if (successBanner) successBanner.classList.add('hidden');
+  if (failureBanner) failureBanner.classList.add('hidden');
+  if (progressBar) progressBar.style.width = '10%';
+  if (percentLabel) percentLabel.textContent = '10%';
+  if (phaseLabel) phaseLabel.textContent = 'Phase: Resolving AI installation plan...';
+  if (statusBadge) {
+    statusBadge.textContent = 'RESOLVING';
+    statusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30';
+  }
+  if (logsContainer) {
+    logsContainer.innerHTML = `<div class="text-cyan-400 font-mono">// Planning installation for: "${escapeHtml(query)}"...</div>`;
+  }
 
   try {
-    const res = await fetch(`/api/packages/search?query=${encodeURIComponent(pkg)}`);
-    if (res.ok) {
-      const data = await res.json();
+    const res = await fetch('/api/installer/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: query })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Could not resolve installation plan');
+    }
+
+    currentInstallerPlan = data.plan;
+
+    if (targetTitle) targetTitle.textContent = currentInstallerPlan.target_name;
+    if (targetDesc) targetDesc.textContent = currentInstallerPlan.explanation || `Source: ${currentInstallerPlan.source_label}`;
+    if (commandText) commandText.textContent = `$ ${currentInstallerPlan.primary_command}`;
+
+    appendInstallerLog(`[✓] Resolved Source: ${currentInstallerPlan.source_label}`);
+    appendInstallerLog(`[✓] Target Type: ${currentInstallerPlan.target_type}`);
+    appendInstallerLog(`[✓] Primary Command: ${currentInstallerPlan.primary_command}`);
+
+    if (currentInstallerPlan.requires_confirmation) {
+      if (statusBadge) {
+        statusBadge.textContent = 'AWAITING CONFIRMATION';
+        statusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30';
+      }
+      if (phaseLabel) phaseLabel.textContent = 'Phase: Root / Sudo confirmation required';
+      showToast('Elevation confirmation required. Click "Confirm & Install" to execute.', 'info');
+    } else {
+      // Auto-start execution if low-risk
+      await confirmAndExecuteInstall();
+    }
+
+  } catch (e) {
+    if (statusBadge) {
+      statusBadge.textContent = 'PLAN FAILED';
+      statusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-red-500/20 text-red-300 border border-red-500/30';
+    }
+    if (failureBanner) {
+      failureBanner.classList.remove('hidden');
+      document.getElementById('inst-failure-msg').textContent = e.message;
+    }
+    appendInstallerLog(`[✗] Planning error: ${e.message}`);
+    showToast(e.message, 'error');
+  } finally {
+    if (btnResolve) {
+      btnResolve.disabled = false;
+      btnResolve.innerHTML = '<i data-lucide="arrow-right-circle" class="w-4.5 h-4.5"></i><span>Plan &amp; Install ↗</span>';
+      if (window.lucide) setTimeout(() => lucide.createIcons(), 50);
+    }
+  }
+}
+
+async function confirmAndExecuteInstall() {
+  if (!currentInstallerPlan) return;
+
+  const statusBadge = document.getElementById('inst-status-badge');
+  const phaseLabel = document.getElementById('inst-phase-label');
+  const progressBar = document.getElementById('inst-progress-bar');
+  const percentLabel = document.getElementById('inst-percent-label');
+  const btnConfirm = document.getElementById('btn-inst-confirm');
+
+  if (btnConfirm) btnConfirm.classList.add('hidden');
+
+  if (statusBadge) {
+    statusBadge.textContent = 'INSTALLING';
+    statusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 animate-pulse';
+  }
+  if (phaseLabel) phaseLabel.textContent = 'Phase: Initiating package installation...';
+  if (progressBar) progressBar.style.width = '25%';
+  if (percentLabel) percentLabel.textContent = '25%';
+
+  try {
+    const res = await fetch('/api/installer/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: currentInstallerPlan.query,
+        plan: currentInstallerPlan,
+        confirmed: true
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Execution start failed');
+    }
+
+    currentInstallerSessionId = data.session_id;
+    connectInstallerStream(currentInstallerSessionId);
+
+  } catch (e) {
+    if (statusBadge) {
+      statusBadge.textContent = 'EXECUTION FAILED';
+      statusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-red-500/20 text-red-300 border border-red-500/30';
+    }
+    appendInstallerLog(`[✗] Execution launch failed: ${e.message}`);
+    showToast(e.message, 'error');
+  }
+}
+
+function connectInstallerStream(sessionId) {
+  if (installerEventSource) {
+    installerEventSource.close();
+    installerEventSource = null;
+  }
+
+  const progressBar = document.getElementById('inst-progress-bar');
+  const phaseLabel = document.getElementById('inst-phase-label');
+  const percentLabel = document.getElementById('inst-percent-label');
+  const statusBadge = document.getElementById('inst-status-badge');
+  const successBanner = document.getElementById('inst-success-banner');
+  const failureBanner = document.getElementById('inst-failure-banner');
+  const launchGuidance = document.getElementById('inst-launch-guidance');
+  const btnConfirm = document.getElementById('btn-inst-confirm');
+
+  try {
+    installerEventSource = new EventSource(`/api/installer/stream/${sessionId}`);
+
+    installerEventSource.addEventListener('progress', (e) => {
+      try {
+        const ev = JSON.parse(e.data);
+        if (ev.progress_percent !== undefined && progressBar) {
+          progressBar.style.width = `${ev.progress_percent}%`;
+          if (percentLabel) percentLabel.textContent = `${ev.progress_percent}%`;
+        }
+        if (ev.message && phaseLabel) {
+          phaseLabel.textContent = `Phase: ${ev.message}`;
+        }
+        if (ev.log_line) {
+          appendInstallerLog(ev.log_line);
+        }
+      } catch (err) {
+        console.error('Error in progress event', err);
+      }
+    });
+
+    installerEventSource.addEventListener('complete', (e) => {
+      try {
+        const result = JSON.parse(e.data);
+        if (installerEventSource) installerEventSource.close();
+
+        if (result.success) {
+          playScifiSound('success');
+          if (statusBadge) {
+            statusBadge.textContent = 'COMPLETED';
+            statusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          }
+          if (progressBar) progressBar.style.width = '100%';
+          if (percentLabel) percentLabel.textContent = '100%';
+          if (phaseLabel) phaseLabel.textContent = 'Phase: Installation verified successfully!';
+          if (successBanner) {
+            successBanner.classList.remove('hidden');
+            if (launchGuidance && result.launch_instructions) {
+              launchGuidance.textContent = result.launch_instructions;
+            }
+          }
+          appendInstallerLog(`[✓] Installation complete and verified for ${result.target_name}.`);
+          showToast(`Successfully installed ${result.target_name}!`, 'success');
+        } else {
+          playScifiSound('error');
+          if (statusBadge) {
+            statusBadge.textContent = 'FAILED';
+            statusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-red-500/20 text-red-300 border border-red-500/30';
+          }
+          if (failureBanner) {
+            failureBanner.classList.remove('hidden');
+            document.getElementById('inst-failure-msg').textContent = result.error_message || 'Installation encountered an error.';
+            const remBox = document.getElementById('inst-failure-rem');
+            if (remBox && result.remediation_suggestion) {
+              remBox.textContent = `💡 Suggested Fix: ${result.remediation_suggestion}`;
+            }
+          }
+          if (btnConfirm) btnConfirm.classList.remove('hidden');
+          appendInstallerLog(`[✗] Error: ${result.error_message}`);
+          showToast(`Installation failed: ${result.error_message}`, 'error');
+        }
+      } catch (err) {
+        console.error('Error parsing completion payload', err);
+      }
+    });
+
+    installerEventSource.addEventListener('cancelled', (e) => {
+      if (installerEventSource) installerEventSource.close();
+      if (statusBadge) {
+        statusBadge.textContent = 'CANCELLED';
+        statusBadge.className = 'px-3 py-1 rounded-full text-xs font-mono font-bold bg-slate-500/20 text-slate-300 border border-slate-500/30';
+      }
+      appendInstallerLog(`[!] Installation cancelled.`);
+      showToast('Installation cancelled.', 'warning');
+    });
+
+    installerEventSource.onerror = () => {
+      // Reconnection or close
+    };
+
+  } catch (e) {
+    console.error('SSE connection error', e);
+  }
+}
+
+async function cancelActiveInstall() {
+  if (!currentInstallerSessionId) return;
+  try {
+    await fetch('/api/installer/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentInstallerSessionId })
+    });
+    showToast('Sent cancellation request', 'info');
+  } catch (e) {
+    console.error('Cancel request failed', e);
+  }
+}
+
+async function retryActiveInstall() {
+  if (currentInstallerPlan) {
+    await confirmAndExecuteInstall();
+  }
+}
+
+async function scanProjectDependencies() {
+  const container = document.getElementById('project-detector-box');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="flex items-center justify-between text-slate-400">
+      <span>Scanning project manifests...</span>
+      <div class="w-4 h-4 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin"></div>
+    </div>
+  `;
+
+  try {
+    const res = await fetch('/api/installer/project-detect');
+    const data = await res.json();
+
+    if (res.ok && data.detected && data.plan) {
+      const plan = data.plan;
       container.innerHTML = `
-        <div class="space-y-2.5 font-sans">
+        <div class="space-y-2.5">
           <div class="flex items-center justify-between text-white font-bold">
-            <span class="font-editorial italic text-base">${escapeHtml(data.package || pkg)}</span>
-            <span class="text-xs text-slate-400 font-mono">${data.installed ? 'INSTALLED' : 'AVAILABLE IN REPO'}</span>
+            <span class="text-emerald-300 flex items-center space-x-1.5">
+              <span>●</span>
+              <span>${escapeHtml(plan.target_name)}</span>
+            </span>
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">${plan.source_label}</span>
           </div>
-          <p class="text-xs text-slate-300 leading-relaxed">${escapeHtml(data.description || 'Package metadata located.')}</p>
-          <div class="pt-2 flex space-x-2.5">
-            ${!data.installed ? `
-              <button onclick="requestCommandPermission({command: 'pacman -S --noconfirm ${pkg}', description: 'Installs package ${pkg}', safetyLevel: 'MODIFYING', riskScore: 0.35, onApprove: () => executeCommandDirect('pacman -S --noconfirm ${pkg}', 'pacman -R --noconfirm ${pkg}')})" class="btn-editorial-primary !py-1.5 !px-3.5 text-xs">
-                Install Package
-              </button>
-            ` : `
-              <button onclick="requestCommandPermission({command: 'pacman -R --noconfirm ${pkg}', description: 'Removes package ${pkg}', safetyLevel: 'MODIFYING', riskScore: 0.40, onApprove: () => executeCommandDirect('pacman -R --noconfirm ${pkg}', 'pacman -S --noconfirm ${pkg}')})" class="btn-editorial-primary !py-1.5 !px-3.5 text-xs">
-                Remove Package
-              </button>
-            `}
+          <p class="text-slate-300 leading-relaxed">${escapeHtml(plan.explanation)}</p>
+          <div class="p-2.5 rounded-lg bg-black/70 border border-white/10 text-yellow-300 text-[11px] font-mono break-all">
+            $ ${escapeHtml(plan.primary_command)}
           </div>
+          <div class="pt-2 flex justify-end">
+            <button onclick="installProjectDependencies()" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs font-mono transition flex items-center space-x-1.5 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+              <span>Install All Project Dependencies</span>
+              <span>↗</span>
+            </button>
+          </div>
+        </div>
+      `;
+    } else {
+      container.innerHTML = `
+        <div class="text-slate-400 space-y-1">
+          <p>No project manifest found in current directory.</p>
+          <p class="text-[11px] text-slate-500">Supports Python (requirements.txt/pyproject.toml), Node (package.json), Rust (Cargo.toml), Go (go.mod), Java (pom.xml).</p>
         </div>
       `;
     }
   } catch (e) {
-    container.innerHTML = `<p class="text-rose-400 font-mono">Error: ${escapeHtml(e.message)}</p>`;
+    container.innerHTML = `<div class="text-rose-400">Scan failed: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function installProjectDependencies() {
+  setInstallerPrompt("Install this project's dependencies");
+}
+
+function installLocalFile() {
+  const filePath = document.getElementById('installer-file-path')?.value?.trim();
+  if (!filePath) {
+    showToast('Please provide a file path (.deb, .rpm, .AppImage, .tar.gz)', 'warning');
+    return;
+  }
+  setInstallerPrompt(`Install ${filePath}`);
+}
+
+function appendInstallerLog(line) {
+  const logsContainer = document.getElementById('installer-terminal-logs');
+  if (!logsContainer) return;
+  const div = document.createElement('div');
+  div.className = 'font-mono text-xs leading-relaxed text-slate-300 border-l border-cyan-500/20 pl-2';
+  div.textContent = line;
+  logsContainer.appendChild(div);
+  logsContainer.scrollTop = logsContainer.scrollHeight;
+}
+
+function copyInstallCommand() {
+  const cmd = document.getElementById('inst-command-text')?.textContent?.replace(/^\$\s*/, '');
+  if (cmd) {
+    navigator.clipboard.writeText(cmd).then(() => {
+      showToast('Command copied to clipboard', 'success');
+    });
+  }
+}
+
+function clearInstallerLogs() {
+  const logsContainer = document.getElementById('installer-terminal-logs');
+  if (logsContainer) {
+    logsContainer.innerHTML = '<div class="text-slate-500">// Terminal log view cleared</div>';
   }
 }
 
@@ -2459,4 +3317,355 @@ async function downloadCatalogModel(modelKey) {
     showToast('Error starting download: ' + e.message, 'error');
   }
 }
+
+// ==========================================================================
+// INTELLIGENT NATURAL LANGUAGE AUTO-COMPLETE SUBSYSTEM
+// ==========================================================================
+
+const autocompleteState = {
+  isOpen: false,
+  suggestions: [],
+  selectedIndex: -1,
+  currentQuery: '',
+  cache: new Map(),
+  debounceTimer: null,
+  abortController: null,
+};
+
+function initAutocomplete() {
+  const input = document.getElementById('agent-prompt-input');
+  const dropdown = document.getElementById('autocomplete-dropdown');
+  if (!input || !dropdown) return;
+
+  // 1. Keystroke input listener with debouncing
+  input.addEventListener('input', (e) => {
+    const val = e.target.value;
+    clearTimeout(autocompleteState.debounceTimer);
+    if (!val || !val.trim()) {
+      hideAutocomplete();
+      return;
+    }
+    autocompleteState.debounceTimer = setTimeout(() => {
+      fetchAutocompleteSuggestions(val.trim());
+    }, 30);
+  });
+
+  // 2. Focus & Click listener on input
+  input.addEventListener('focus', () => {
+    const val = input.value.trim();
+    if (val.length >= 1) {
+      fetchAutocompleteSuggestions(val);
+    }
+  });
+
+  // 3. Keyboard navigation listener (Keydown)
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      if (!autocompleteState.isOpen || autocompleteState.suggestions.length === 0) {
+        const val = input.value.trim();
+        if (val) fetchAutocompleteSuggestions(val);
+        return;
+      }
+      e.preventDefault();
+      navigateAutocomplete(1);
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      if (autocompleteState.isOpen && autocompleteState.suggestions.length > 0) {
+        e.preventDefault();
+        navigateAutocomplete(-1);
+      }
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      if (autocompleteState.isOpen && autocompleteState.suggestions.length > 0) {
+        e.preventDefault();
+        acceptAutocomplete(false);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowRight') {
+      // Auto-complete if at end of input line
+      if (autocompleteState.isOpen && autocompleteState.suggestions.length > 0 && input.selectionStart === input.value.length) {
+        e.preventDefault();
+        acceptAutocomplete(false);
+      }
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      if (autocompleteState.isOpen && autocompleteState.selectedIndex >= 0) {
+        e.preventDefault();
+        acceptAutocomplete(true);
+      }
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      if (autocompleteState.isOpen) {
+        e.preventDefault();
+        hideAutocomplete();
+      }
+      return;
+    }
+  });
+
+  // 4. Click outside handler to dismiss
+  document.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target) && e.target !== input) {
+      hideAutocomplete();
+    }
+  });
+}
+
+async function fetchAutocompleteSuggestions(query) {
+  const dropdown = document.getElementById('autocomplete-dropdown');
+  if (!dropdown) return;
+
+  autocompleteState.currentQuery = query;
+
+  // Retrieve current active directory from settings or system state if available
+  let cwd = '';
+  const cwdInput = document.getElementById('settings-cwd-input');
+  if (cwdInput && cwdInput.value.trim()) {
+    cwd = cwdInput.value.trim();
+  }
+
+  const cacheKey = `${query}::${cwd}`;
+  if (autocompleteState.cache.has(cacheKey)) {
+    const cached = autocompleteState.cache.get(cacheKey);
+    renderAutocompleteDropdown(cached, query);
+    return;
+  }
+
+  if (autocompleteState.abortController) {
+    autocompleteState.abortController.abort();
+  }
+  autocompleteState.abortController = new AbortController();
+
+  try {
+    const url = `/api/autocomplete?q=${encodeURIComponent(query)}&cwd=${encodeURIComponent(cwd)}&limit=8`;
+    const res = await fetch(url, {
+      signal: autocompleteState.abortController.signal,
+      headers: { 'Accept': 'application/json' }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && Array.isArray(data.suggestions)) {
+      // Keep cache under 100 entries
+      if (autocompleteState.cache.size > 100) {
+        const firstKey = autocompleteState.cache.keys().next().value;
+        autocompleteState.cache.delete(firstKey);
+      }
+      autocompleteState.cache.set(cacheKey, data.suggestions);
+
+      // Only render if query matches current active query
+      if (autocompleteState.currentQuery === query) {
+        renderAutocompleteDropdown(data.suggestions, query);
+      }
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.warn('Autocomplete fetch error:', err);
+    }
+  }
+}
+
+function formatCategoryBadge(cat) {
+  let label = 'Linux Task';
+  let badgeClass = 'autocomplete-badge-linux_task';
+  let icon = 'terminal';
+
+  if (cat === 'smart_intent') {
+    label = 'Smart Intent';
+    badgeClass = 'autocomplete-badge-smart_intent';
+    icon = 'zap';
+  } else if (cat === 'project') {
+    label = 'Project Context';
+    badgeClass = 'autocomplete-badge-project';
+    icon = 'package';
+  } else if (cat === 'history') {
+    label = 'Recent History';
+    badgeClass = 'autocomplete-badge-history';
+    icon = 'clock';
+  } else if (cat === 'cwd') {
+    label = 'Active Directory';
+    badgeClass = 'autocomplete-badge-cwd';
+    icon = 'folder';
+  } else if (cat === 'installed_tool') {
+    label = 'Installed Tool';
+    badgeClass = 'autocomplete-badge-linux_task';
+    icon = 'wrench';
+  }
+
+  return { label, badgeClass, icon };
+}
+
+function highlightTextWithRanges(text, ranges) {
+  if (!ranges || ranges.length === 0) return escapeHtml(text);
+  let html = '';
+  let lastIdx = 0;
+  for (const [start, end] of ranges) {
+    if (start > lastIdx) {
+      html += escapeHtml(text.slice(lastIdx, start));
+    }
+    html += `<span class="autocomplete-highlight">${escapeHtml(text.slice(start, end))}</span>`;
+    lastIdx = end;
+  }
+  if (lastIdx < text.length) {
+    html += escapeHtml(text.slice(lastIdx));
+  }
+  return html;
+}
+
+function renderAutocompleteDropdown(suggestions, query) {
+  const dropdown = document.getElementById('autocomplete-dropdown');
+  if (!dropdown) return;
+
+  if (!suggestions || suggestions.length === 0) {
+    hideAutocomplete();
+    return;
+  }
+
+  autocompleteState.suggestions = suggestions;
+  autocompleteState.selectedIndex = -1;
+
+  let itemsHtml = '';
+  suggestions.forEach((item, idx) => {
+    const badgeInfo = formatCategoryBadge(item.category);
+    const highlightedTitle = highlightTextWithRanges(item.text, item.highlight_ranges || []);
+    const itemIcon = item.icon || badgeInfo.icon;
+    const preview = item.command_preview ? escapeHtml(item.command_preview) : escapeHtml(item.description || '');
+
+    itemsHtml += `
+      <div 
+        class="autocomplete-item group" 
+        id="autocomplete-item-${idx}" 
+        data-index="${idx}"
+        onclick="selectAutocompleteByIndex(${idx}, true)"
+        onmouseenter="highlightAutocompleteIndex(${idx})"
+        role="option"
+        aria-selected="false">
+        <div class="flex items-center space-x-3 min-w-0 pr-3">
+          <div class="w-7 h-7 rounded-lg bg-white/5 group-hover:bg-cyan-400/15 flex items-center justify-center shrink-0 border border-white/10 group-hover:border-cyan-400/30 transition">
+            <i data-lucide="${itemIcon}" class="w-3.5 h-3.5 text-cyan-300"></i>
+          </div>
+          <div class="min-w-0 truncate">
+            <div class="autocomplete-text text-xs sm:text-sm font-sans font-semibold text-slate-100 group-hover:text-white truncate">
+              ${highlightedTitle}
+            </div>
+            <div class="text-[11px] font-mono text-slate-400 truncate opacity-80 group-hover:opacity-100">
+              ${preview}
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2 shrink-0">
+          <span class="autocomplete-badge ${badgeInfo.badgeClass}">
+            ${badgeInfo.label}
+          </span>
+          <button 
+            type="button" 
+            onclick="event.stopPropagation(); selectAutocompleteByIndex(${idx}, false)" 
+            title="Complete (Tab / →)" 
+            class="hidden sm:inline-flex opacity-0 group-hover:opacity-100 items-center justify-center p-1 rounded-md bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition">
+            <i data-lucide="corner-down-left" class="w-3 h-3"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  // Add navigation hints footer
+  itemsHtml += `
+    <div class="autocomplete-footer">
+      <div class="flex items-center space-x-2">
+        <span><span class="autocomplete-keycap">Tab</span> or <span class="autocomplete-keycap">→</span> Complete</span>
+        <span><span class="autocomplete-keycap">Enter</span> Execute</span>
+        <span><span class="autocomplete-keycap">↑</span><span class="autocomplete-keycap">↓</span> Navigate</span>
+      </div>
+      <div><span class="autocomplete-keycap">Esc</span> Close</div>
+    </div>
+  `;
+
+  dropdown.innerHTML = itemsHtml;
+  dropdown.classList.remove('hidden');
+  autocompleteState.isOpen = true;
+
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+}
+
+function highlightAutocompleteIndex(index) {
+  autocompleteState.selectedIndex = index;
+  const items = document.querySelectorAll('.autocomplete-item');
+  items.forEach((el, i) => {
+    if (i === index) {
+      el.classList.add('active');
+      el.setAttribute('aria-selected', 'true');
+    } else {
+      el.classList.remove('active');
+      el.setAttribute('aria-selected', 'false');
+    }
+  });
+}
+
+function navigateAutocomplete(delta) {
+  const len = autocompleteState.suggestions.length;
+  if (len === 0) return;
+
+  if (autocompleteState.selectedIndex === -1) {
+    autocompleteState.selectedIndex = (delta > 0) ? 0 : len - 1;
+  } else {
+    autocompleteState.selectedIndex = (autocompleteState.selectedIndex + delta + len) % len;
+  }
+
+  highlightAutocompleteIndex(autocompleteState.selectedIndex);
+
+  // Scroll active item into view
+  const targetItem = document.getElementById(`autocomplete-item-${autocompleteState.selectedIndex}`);
+  if (targetItem) {
+    targetItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+function selectAutocompleteByIndex(index, execute = false) {
+  const item = autocompleteState.suggestions[index];
+  if (!item) return;
+
+  const input = document.getElementById('agent-prompt-input');
+  if (input) {
+    input.value = item.text;
+    toggleClearPromptBtn(item.text);
+  }
+
+  hideAutocomplete();
+
+  if (execute) {
+    submitAgentPrompt(item.text);
+  } else if (input) {
+    input.focus();
+    input.setSelectionRange(item.text.length, item.text.length);
+  }
+}
+
+function acceptAutocomplete(execute = false) {
+  if (!autocompleteState.isOpen || autocompleteState.suggestions.length === 0) return;
+  const idx = autocompleteState.selectedIndex >= 0 ? autocompleteState.selectedIndex : 0;
+  selectAutocompleteByIndex(idx, execute);
+}
+
+function hideAutocomplete() {
+  autocompleteState.isOpen = false;
+  autocompleteState.selectedIndex = -1;
+  const dropdown = document.getElementById('autocomplete-dropdown');
+  if (dropdown) {
+    dropdown.classList.add('hidden');
+  }
+}
+
 

@@ -224,8 +224,12 @@ def _extract_service(m: re.Match) -> Dict[str, Any]:
 
 
 def _extract_package(m: re.Match) -> Dict[str, Any]:
-    pkg = _sanitize_token(m.group("pkg") or "")
-    return {"package": pkg} if pkg else {}
+    pkg = (m.group("pkg") or "").strip().strip("\"'")
+    if not pkg:
+        return {}
+    if pkg.lower() in ("temporary", "temp", "downloads", "folder", "directory", "dir", "cache", "trash", "logs"):
+        return {}
+    return {"package": pkg}
 
 
 def _extract_path(m: re.Match) -> Dict[str, Any]:
@@ -360,10 +364,20 @@ def _extract_folder_path(m: re.Match) -> Dict[str, Any]:
         if named_dir:
             named_map = {
                 "downloads": "~/Downloads", "download": "~/Downloads",
+                "downlaods": "~/Downloads", "downlaod": "~/Downloads",
+                "downlod": "~/Downloads", "downlods": "~/Downloads",
+                "dwnload": "~/Downloads", "dwnloads": "~/Downloads",
                 "documents": "~/Documents", "document": "~/Documents",
+                "documnts": "~/Documents", "documnt": "~/Documents",
+                "docs": "~/Documents", "doc": "~/Documents",
                 "pictures": "~/Pictures", "picture": "~/Pictures",
-                "desktop": "~/Desktop", "music": "~/Music",
-                "videos": "~/Videos", "video": "~/Videos",
+                "picturs": "~/Pictures", "pictur": "~/Pictures",
+                "pics": "~/Pictures", "pic": "~/Pictures",
+                "photos": "~/Pictures", "photo": "~/Pictures",
+                "images": "~/Pictures", "image": "~/Pictures",
+                "desktop": "~/Desktop", "desktops": "~/Desktop",
+                "music": "~/Music", "videos": "~/Videos", "video": "~/Videos",
+                "movies": "~/Videos", "movie": "~/Videos",
                 "home": "~", "root": "/"
             }
             path = named_map.get(named_dir.lower(), f"~/{named_dir.capitalize()}")
@@ -376,16 +390,19 @@ def _extract_folder_path(m: re.Match) -> Dict[str, Any]:
 
 def _extract_pid(m: re.Match) -> Dict[str, Any]:
     try:
-        pid = m.group("pid")
+        pid = m.group("pid") if "pid" in m.groupdict() else None
         name = m.group("name") if "name" in m.groupdict() else None
         result: Dict[str, Any] = {}
         if pid:
             result["pid"] = int(pid)
-        if name:
+        elif name and name.strip().isdigit():
+            result["pid"] = int(name.strip())
+        elif name:
             result["name"] = name.strip()
         return result
     except Exception:
         return {}
+
 
 
 def _extract_container(m: re.Match) -> Dict[str, Any]:
@@ -532,8 +549,7 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     # Desktop Operations
     # -----------------------------------------------------------------------
     (IntentType.DESKTOP_OPEN_FOLDER, [
-        (r"\b(?:open|launch|show)\s+(?:the\s+|my\s+)?(?P<dir>downloads|documents|pictures|desktop|music|videos|home|root)\s+(?:folder|dir|directory)\b", _extract_folder_path),
-        (r"\b(?:open|launch|show)\s+(?:the\s+|my\s+)?(?P<dir>downloads|documents|pictures|desktop|music|videos|home)\b", _extract_folder_path),
+        (r"\b(?:open|launch|show|explore|view)\s+(?:the\s+|my\s+)?(?P<dir>downloads?|downlaods?|downlod|downlods?|dwnloads?|documents?|documnts?|documnt|docs?|doc|pictures?|picturs?|pictur|pics?|pic|photos?|photo|images?|image|desktop|desktops?|music|videos?|movies?|home|root)\s*(?:folder|dir|directory)?\b", _extract_folder_path),
         (r"\b(?:open|launch|explore)\s+(?:folder|directory|dir)\s+(?P<path>[\w\.\-\/~]+)", _extract_folder_path),
         (r"\b(?:open|explore)\s+(?P<path>(?:~|\/|\.\/)[^\s]+)\s+in\s+(?:file\s+manager|folder|finder|explorer|nautilus|dolphin|thunar)\b", _extract_folder_path),
         (r"\b(?:open|launch)\s+in\s+(?:file\s+manager|nautilus|dolphin|thunar)\s+(?P<path>[\w\.\-\/~]+)", _extract_folder_path),
@@ -893,9 +909,12 @@ _RULES: List[Tuple[IntentType, List[Tuple[str, Optional]]]] = [
     # Packages
     # -----------------------------------------------------------------------
     (IntentType.PACKAGE_INSTALL, [
-        (r"\b(?:install|download|get|fetch|add|setup)\s+(?:the\s+)?(?:software\s+|package\s+|app\s+|application\s+|tool\s+)?(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
-        (r"\b(?:install|download|get|fetch|add)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
-        (r"\b(?:sudo\s+)?(?:apt|apt-get|yum|dnf|pacman|apk|zypper)\s+(?:install|add|-S)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+]+)\b", _extract_package),
+        (r"\b(?:install\s+(?:this\s+)?project(?:'s)?\s+dependencies|install\s+requirements(?:\.txt)?|install\s+package\.json|setup\s+project|install\s+everything\s+(?:required|needed)\s+to\s+run\s+this\s+project|install\s+all\s+dependencies)\b", lambda m: {"package": "project_dependencies"}),
+        (r"\b(?:i\s+(?:have|need|want)\s+to\s+install|please\s+install|can\s+you\s+install)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+/\s]+?)(?:\s+on\s+my\s+system|\s+please|\s+now)?$", _extract_package),
+        (r"\b(?:i\s+need\s+(?:a\s+)?(?:library|package|tool)\s+(?:to|for)\s+)(?P<pkg>.+)", _extract_package),
+        (r"\b(?:install|download|get|fetch|add|setup)\s+(?:the\s+)?(?:software\s+|package\s+|app\s+|application\s+|tool\s+|library\s+|libraries\s+)?(?P<pkg>[a-zA-Z0-9_\-\.\+/\s]+?)(?:\s+package|\s+app|\s+library|\s+tool)?$", _extract_package),
+        (r"\b(?:install|setup)\s+(?P<pkg>[\w\-\.~/]+\.(?:deb|rpm|appimage|tar\.gz|tgz|tar\.xz|zip|sh))\b", _extract_package),
+        (r"\b(?:sudo\s+)?(?:apt|apt-get|yum|dnf|pacman|apk|zypper|yay|paru|flatpak|snap|pip|pip3|npm|pnpm|yarn|bun|cargo)\s+(?:install|add|-S)\s+(?P<pkg>[a-zA-Z0-9_\-\.\+@/ ]+)\b", _extract_package),
     ]),
 
     (IntentType.PACKAGE_REMOVE, [
@@ -1242,6 +1261,10 @@ class IntentRouter:
     # Public API
     # ------------------------------------------------------------------
 
+    def route(self, text: str, remediation_context: bool = False) -> Intent:
+        """Alias for classify()."""
+        return self.classify(text, remediation_context=remediation_context)
+
     def classify(self, text: str, remediation_context: bool = False) -> Intent:
         """
         Classify *text* and return the best-matching Intent.
@@ -1411,11 +1434,16 @@ class IntentRouter:
 
     def _looks_diagnostic(self, text: str) -> bool:
         """Heuristic: does this look like a diagnostic query rather than a command?"""
-        diagnostic_words = {
-            "why", "what", "how", "fail", "crash", "slow", "debug", "diagnos",
-            "issue", "problem", "not working", "broken", "down", "died", "killed",
-            "high cpu", "high memory", "memory leak", "oom", "timeout",
-            "out of memory", "permission denied", "connection refused", "cannot", "unable"
-        }
+        diagnostic_patterns = [
+            r"\bwhy\b", r"\bwhat\s+(?:is|went|happened|caused|failed)\b",
+            r"\bhow\s+(?:come|did|to\s+fix|can\s+i\s+fix)\b",
+            r"\bfail(?:ed|s|ing|ure)?\b", r"\bcrash(?:ed|es|ing)?\b", r"\bslow\b",
+            r"\bdebug\b", r"\bdiagnos(?:e|is|tic)?\b", r"\bissues?\b", r"\bproblems?\b",
+            r"\bnot\s+working\b", r"\bbroken\b", r"\b(?:is\s+|are\s+|service\s+|server\s+)down\b",
+            r"\bdied\b", r"\bkilled\b", r"\bhigh\s+cpu\b", r"\bhigh\s+memory\b",
+            r"\bmemory\s+leak\b", r"\boom\b", r"\btime(?:d)?\s*out\b", r"\bout\s+of\s+memory\b",
+            r"\bpermission\s+denied\b", r"\bconnection\s+refused\b", r"\bcannot\b",
+            r"\bunable\b", r"\berror(?:s)?\b", r"\banomaly\b"
+        ]
         text_lower = text.lower()
-        return any(w in text_lower for w in diagnostic_words)
+        return any(re.search(pat, text_lower) for pat in diagnostic_patterns)

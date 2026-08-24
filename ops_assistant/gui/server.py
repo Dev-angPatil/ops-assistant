@@ -29,6 +29,7 @@ from ops_assistant.tools.safety import CommandSafetyValidator
 from ops_assistant.tools.sandbox_probe import EphemeralSandboxProbe
 from ops_assistant.tools import desktop_ops, download_ops, storage_ops, process_ops, network_ops, log_ops
 from ops_assistant.models import SafetyLevel
+from ops_assistant.explainer.xai import ExecutionOutcomeExplainer
 
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -349,9 +350,72 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             self._send_json({"cwd": get_working_dir()})
             return
 
+        elif path == "/api/autocomplete":
+            from ops_assistant.nlp.autocomplete import get_autocomplete_engine
+            q = query.get("q", [""])[0] or query.get("query", [""])[0]
+            cwd = query.get("cwd", [None])[0]
+            try:
+                limit = int(query.get("limit", [8])[0])
+            except (ValueError, TypeError):
+                limit = 8
+            engine = get_autocomplete_engine()
+            suggs = engine.suggest(query=q, cwd=cwd, max_results=limit)
+            self._send_json({
+                "success": True,
+                "query": q,
+                "count": len(suggs),
+                "suggestions": [s.to_dict() for s in suggs]
+            })
+            return
+
         elif path == "/api/sandbox/status":
             probe = EphemeralSandboxProbe()
             self._send_json(probe.get_status())
+            return
+
+        elif path == "/api/voice/status":
+            from ops_assistant.voice.recorder import VoiceRecorder
+            rec = VoiceRecorder()
+            avail, details = rec.is_microphone_available()
+            self._send_json({
+                "success": True,
+                "available": avail,
+                "details": details,
+                "supported_languages": [
+                    {"code": "en-IN", "label": "English (India)"},
+                    {"code": "hi-IN", "label": "Hinglish / Hindi"},
+                    {"code": "en-US", "label": "English (US)"},
+                    {"code": "en-GB", "label": "English (UK)"}
+                ]
+            })
+            return
+
+        elif path == "/api/installer/sources":
+            from ops_assistant.installer.sources import SourceResolver
+            caps = SourceResolver.probe_host()
+            self._send_json(caps.to_dict())
+            return
+
+        elif path == "/api/installer/project-detect":
+            from ops_assistant.installer.project_detector import ProjectDependencyDetector
+            from ops_assistant.config import get_working_dir
+            cwd_target = query.get("cwd", [get_working_dir()])[0]
+            distro_override = query.get("distro", [None])[0]
+            plan = ProjectDependencyDetector.detect_and_plan(root_dir=cwd_target, distro_family=distro_override or "arch")
+            if plan:
+                self._send_json({"detected": True, "plan": plan.to_dict()})
+            else:
+                self._send_json({"detected": False, "message": "No recognized project dependency manifest found."})
+            return
+
+        elif path == "/api/installer/catalog":
+            from ops_assistant.installer.knowledge_base import APP_CATALOG
+            self._send_json({"catalog": APP_CATALOG, "count": len(APP_CATALOG)})
+            return
+
+        elif path.startswith("/api/installer/stream/"):
+            session_id = path[len("/api/installer/stream/"):]
+            self._handle_command_stream_sse(session_id)
             return
 
         elif path.startswith("/api/command/stream/"):
@@ -359,12 +423,68 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             self._handle_command_stream_sse(session_id)
             return
 
+        elif path == "/api/terminal/status":
+            from ops_assistant.tools.terminal_fallback import TerminalFallbackDetector
+            term = TerminalFallbackDetector.find_available_terminal_emulator()
+            can_launch = bool(term is not None and ("DISPLAY" in os.environ or "WAYLAND_DISPLAY" in os.environ))
+            self._send_json({
+                "success": True,
+                "supported": can_launch,
+                "terminal": term,
+                "display_active": bool("DISPLAY" in os.environ or "WAYLAND_DISPLAY" in os.environ)
+            })
+            return
+
         else:
             self._send_error("Endpoint not found", status=404)
+
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        # Voice Transcription Endpoint
+        if path == "/api/voice/transcribe":
+            content_type = self.headers.get("Content-Type", "")
+            content_len = int(self.headers.get("Content-Length", 0))
+            from ops_assistant.voice.transcriber import SpeechTranscriber, PhoneticNormalizer
+            transcriber = SpeechTranscriber()
+
+            if "application/json" in content_type:
+                body = self._read_json()
+                raw_text = body.get("text", "").strip()
+                lang = body.get("language", "en-IN")
+                if raw_text:
+                    clean = PhoneticNormalizer.normalize(raw_text)
+                    self._send_json({
+                        "success": True,
+                        "text": clean,
+                        "raw_text": raw_text,
+                        "confidence": 0.95,
+                        "engine": "web_speech_normalized"
+                    })
+                    return
+                elif "audio_base64" in body:
+                    import base64
+                    try:
+                        wav_data = base64.b64decode(body["audio_base64"])
+                        res = transcriber.transcribe_wav_bytes(wav_data, language=lang)
+                        self._send_json(res)
+                        return
+                    except Exception as e:
+                        self._send_error(f"Base64 audio decode failed: {e}")
+                        return
+
+            # Raw binary WAV upload
+            if content_len > 0:
+                raw_audio = self.rfile.read(content_len)
+                res = transcriber.transcribe_wav_bytes(raw_audio)
+                self._send_json(res)
+                return
+
+            self._send_error("No audio data or text provided for transcription.")
+            return
+
         body = self._read_json()
 
         # 1. AI Agent Interactive Chat & Command Dispatch
@@ -377,6 +497,25 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             execute = bool(body.get("execute", True))
             result = self.agent.execute_agent_action(prompt, context=context, execute=execute)
             self._send_json(result)
+            return
+
+        # 1.1 Autocomplete Suggestions (POST)
+        elif path == "/api/autocomplete":
+            from ops_assistant.nlp.autocomplete import get_autocomplete_engine
+            q = body.get("query", "") or body.get("q", "")
+            cwd = body.get("cwd")
+            try:
+                limit = int(body.get("limit", 8))
+            except (ValueError, TypeError):
+                limit = 8
+            engine = get_autocomplete_engine()
+            suggs = engine.suggest(query=q, cwd=cwd, max_results=limit)
+            self._send_json({
+                "success": True,
+                "query": q,
+                "count": len(suggs),
+                "suggestions": [s.to_dict() for s in suggs]
+            })
             return
 
         # 2. Diagnostics
@@ -491,7 +630,7 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             self._send_json(res)
             return
 
-        # 8. Command Execution with AST Safety Guardrails & Sandbox Probe
+        # 8. Command Execution with AST Safety Guardrails, Sandbox Probe & Terminal Fallback
         elif path == "/api/execute":
             command = body.get("command", "").strip()
             dry_run = bool(body.get("dry_run", False))
@@ -499,16 +638,30 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                 self._send_error("Command required")
                 return
 
+            from ops_assistant.tools.terminal_fallback import TerminalFallbackDetector
+            from ops_assistant.config import get_working_dir
+
             # Safety validation
             val = CommandSafetyValidator.validate(command)
             if val.level == SafetyLevel.DESTRUCTIVE:
+                fallback = TerminalFallbackDetector.build_fallback_payload(
+                    command_or_commands=command,
+                    returncode=1,
+                    stdout="",
+                    stderr=f"DESTRUCTIVE command blocked: {val.matched_rule}",
+                    blocked=True,
+                    safety_level=val.level,
+                    risk_score=val.risk_score,
+                    cwd=get_working_dir()
+                )
                 self._send_json({
                     "success": False,
                     "blocked": True,
                     "safety_level": val.level.value,
                     "risk_score": val.risk_score,
                     "error": f"DESTRUCTIVE command blocked: {val.matched_rule}",
-                    "command": command
+                    "command": command,
+                    "terminal_fallback": fallback.to_dict()
                 }, status=403)
                 return
 
@@ -518,6 +671,32 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
 
             res = self.executor.execute(command, dry_run=dry_run)
             returncode = res.get("returncode", -1)
+
+            # Generate comprehensive natural language outcome and system changes explanation
+            outcome = ExecutionOutcomeExplainer.explain_outcome(
+                command=command,
+                returncode=returncode,
+                stdout=res.get("stdout", ""),
+                stderr=res.get("stderr", ""),
+                query=body.get("query"),
+                elapsed_ms=res.get("elapsed_ms", 0.0),
+                context={"cwd": get_working_dir()},
+                llm_provider=getattr(self.agent, "llm_provider", None) if self.agent else None
+            )
+
+            fallback = outcome.get("terminal_fallback")
+            if not fallback:
+                fallback_obj = TerminalFallbackDetector.build_fallback_payload(
+                    command_or_commands=command,
+                    returncode=returncode,
+                    stdout=res.get("stdout", ""),
+                    stderr=res.get("stderr", ""),
+                    safety_level=val.level,
+                    risk_score=val.risk_score,
+                    cwd=get_working_dir()
+                )
+                fallback = fallback_obj.to_dict()
+
             self._send_json({
                 "success": returncode == 0,
                 "returncode": returncode,
@@ -529,9 +708,58 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                 "risk_score": val.risk_score,
                 "dry_run": dry_run,
                 "rollback_command": val.suggested_rollback,
-                "sandbox_probe": probe_result.to_dict()
+                "sandbox_probe": probe_result.to_dict(),
+                "explanation_paragraph": outcome.get("explanation_paragraph", ""),
+                "natural_explanation": outcome.get("natural_explanation", ""),
+                "ai_explanation": outcome.get("ai_elaboration") or outcome.get("natural_explanation", ""),
+                "changes_made": outcome.get("changes_made", []),
+                "changes_summary": outcome.get("changes_summary", ""),
+                "failure_analysis": outcome.get("failure_analysis"),
+                "terminal_fallback": fallback
             })
             return
+
+        # 8a. Dedicated GUI-to-Terminal Fallback Payload Resolution Endpoint
+        elif path == "/api/terminal/fallback":
+            from ops_assistant.tools.terminal_fallback import TerminalFallbackDetector
+            from ops_assistant.config import get_working_dir
+            cmd = body.get("command") or body.get("commands", "")
+            rc = int(body.get("returncode", 0))
+            stdout_val = body.get("stdout", "")
+            stderr_val = body.get("stderr", "")
+            blocked_val = bool(body.get("blocked", False))
+            cwd_val = body.get("cwd") or get_working_dir()
+            payload = TerminalFallbackDetector.build_fallback_payload(
+                command_or_commands=cmd,
+                returncode=rc,
+                stdout=stdout_val,
+                stderr=stderr_val,
+                blocked=blocked_val,
+                cwd=cwd_val,
+                force_fallback=bool(body.get("force", False))
+            )
+            self._send_json({"success": True, "fallback": payload.to_dict()})
+            return
+
+        # 8a2. Launch Command in Desktop Terminal Emulator
+        elif path == "/api/terminal/run":
+            from ops_assistant.tools.terminal_fallback import TerminalFallbackDetector
+            from ops_assistant.config import get_working_dir
+            cmd = body.get("command", "").strip()
+            if not cmd:
+                self._send_error("Command required to launch in terminal")
+                return
+            cwd_val = body.get("cwd") or get_working_dir()
+            hold_open = bool(body.get("hold_open", True))
+            res = TerminalFallbackDetector.launch_command_in_desktop_terminal(
+                command=cmd,
+                cwd=cwd_val,
+                hold_open=hold_open
+            )
+            self._send_json(res)
+            return
+
+
 
         # 8b. Dedicated Ephemeral Sandbox Probe Verification Endpoint
         elif path == "/api/sandbox/verify":
@@ -830,8 +1058,107 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             self._send_json({"success": True, "cwd": get_working_dir()})
             return
 
+        elif path == "/api/installer/resolve":
+            from ops_assistant.installer.engine import PackageInstallerEngine
+            from ops_assistant.config import get_working_dir
+            q = body.get("query", "").strip()
+            cwd = body.get("cwd") or get_working_dir()
+            distro_override = body.get("distro")
+            if not q:
+                self._send_error("query is required for installation resolution")
+                return
+            engine = PackageInstallerEngine(distro_override=distro_override)
+            plan = engine.resolve_plan(q, cwd=cwd, distro_override=distro_override)
+            self._send_json({"success": True, "plan": plan.to_dict()})
+            return
+
+        elif path == "/api/installer/execute":
+            from ops_assistant.installer.engine import PackageInstallerEngine
+            from ops_assistant.config import get_working_dir
+            raw_query = body.get("query", "").strip()
+            plan_dict = body.get("plan")
+            confirmed = bool(body.get("confirmed", False))
+            cwd = body.get("cwd") or get_working_dir()
+            distro_override = body.get("distro")
+
+            engine = PackageInstallerEngine(distro_override=distro_override)
+            if raw_query:
+                plan = engine.resolve_plan(raw_query, cwd=cwd, distro_override=distro_override)
+            elif plan_dict:
+                plan = engine.resolve_plan(plan_dict.get("query", ""), cwd=cwd, distro_override=distro_override)
+            else:
+                self._send_error("query or plan is required")
+                return
+
+            if plan.requires_confirmation and not confirmed:
+                self._send_json({
+                    "blocked": True,
+                    "error": "This installation requires root / sudo permissions. Please confirm to proceed.",
+                    "requires_confirmation": True,
+                    "plan": plan.to_dict()
+                }, status=403)
+                return
+
+            session_id = _create_session({
+                "text": f"Install {plan.target_name}",
+                "understanding": f"Installing {plan.target_name} ({plan.source_label})",
+                "plan_steps": [s.to_dict() for s in plan.steps],
+                "requires_confirmation": plan.requires_confirmation,
+                "safety_level": plan.safety_level.value if hasattr(plan.safety_level, "value") else str(plan.safety_level),
+                "intent": "package_install",
+                "install_plan": plan.to_dict(),
+            })
+
+            t = threading.Thread(
+                target=self._execute_installer_async,
+                args=(session_id, plan),
+                daemon=True,
+            )
+            t.start()
+            self._send_json({"success": True, "session_id": session_id, "plan": plan.to_dict(), "message": "Installation started"})
+            return
+
+        elif path == "/api/installer/cancel":
+            sid = body.get("session_id", "").strip()
+            sess = _get_session(sid)
+            if sess:
+                sess["cancelled"] = True
+                q = sess.get("events_queue")
+                if q:
+                    q.put({"type": "cancelled", "data": {"message": "Installation cancelled."}})
+                    q.put(None)
+            self._send_json({"success": True, "message": "Cancellation registered."})
+            return
+
         else:
             self._send_error("Endpoint not found", status=404)
+
+    def _execute_installer_async(self, session_id: str, plan: Any):
+        sess = _get_session(session_id)
+        if not sess:
+            return
+        from ops_assistant.installer.engine import PackageInstallerEngine
+        from ops_assistant.installer.models import InstallProgressEvent
+        from ops_assistant.db.history_db import get_history_db
+
+        q: queue.Queue = sess["events_queue"]
+        log: List[Dict[str, Any]] = sess["events_log"]
+
+        def emit(event_type: str, data: Dict[str, Any]):
+            entry = {"type": event_type, "data": data, "timestamp": time.time()}
+            log.append(entry)
+            q.put(entry)
+
+        def progress_cb(ev: InstallProgressEvent):
+            if sess.get("cancelled"):
+                return
+            emit("progress", ev.to_dict())
+
+        engine = PackageInstallerEngine(distro_override=plan.distro_family)
+        res = engine.execute_plan(plan, progress_callback=progress_cb, dry_run=False, session_id=session_id)
+
+        emit("complete", res.to_dict())
+        q.put(None)  # Sentinel
 
     def _serve_static_file(self, filename: str, mime: str):
         target = (STATIC_DIR / filename).resolve()
@@ -966,6 +1293,16 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                 if proc.returncode != 0:
                     diag = self.agent.explain_error(cmd, proc.returncode, stderr=proc.stderr, stdout=proc.stdout)
 
+                outcome = ExecutionOutcomeExplainer.explain_outcome(
+                    command=cmd,
+                    returncode=proc.returncode,
+                    stdout=proc.stdout,
+                    stderr=proc.stderr,
+                    query=step.get("description") or sess.get("text"),
+                    elapsed_ms=elapsed_ms,
+                    llm_provider=getattr(self.agent, "llm_provider", None) if self.agent else None
+                )
+
                 # Persist to database
                 hdb.log_command(
                     session_id=session_id,
@@ -987,12 +1324,48 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
                     "status": status,
                     "exit_code": proc.returncode,
                     "output": output[:2000],
-                    "error_diagnosis": diag
+                    "error_diagnosis": diag,
+                    "explanation_paragraph": outcome.get("explanation_paragraph", ""),
+                    "natural_explanation": outcome.get("natural_explanation", ""),
+                    "ai_explanation": outcome.get("ai_elaboration") or outcome.get("natural_explanation", ""),
+                    "changes_made": outcome.get("changes_made", []),
+                    "changes_summary": outcome.get("changes_summary", ""),
+                    "failure_analysis": outcome.get("failure_analysis"),
+                    "terminal_fallback": outcome.get("terminal_fallback")
                 })
+
             except _sp.TimeoutExpired:
-                emit("plan_step", {**step, "status": "failed", "exit_code": -1, "output": "Command timed out after 30 s"})
+                from ops_assistant.tools.terminal_fallback import TerminalFallbackDetector
+                fb_data = TerminalFallbackDetector.build_fallback_payload(
+                    command_or_commands=cmd,
+                    returncode=-1,
+                    stdout="",
+                    stderr="Command timed out after 30 s",
+                    cwd=active_cwd
+                )
+                emit("plan_step", {
+                    **step,
+                    "status": "failed",
+                    "exit_code": -1,
+                    "output": "Command timed out after 30 s",
+                    "terminal_fallback": fb_data.to_dict()
+                })
             except Exception as exc:
-                emit("plan_step", {**step, "status": "failed", "exit_code": -1, "output": str(exc)})
+                from ops_assistant.tools.terminal_fallback import TerminalFallbackDetector
+                fb_data = TerminalFallbackDetector.build_fallback_payload(
+                    command_or_commands=cmd,
+                    returncode=-1,
+                    stdout="",
+                    stderr=str(exc),
+                    cwd=active_cwd
+                )
+                emit("plan_step", {
+                    **step,
+                    "status": "failed",
+                    "exit_code": -1,
+                    "output": str(exc),
+                    "terminal_fallback": fb_data.to_dict()
+                })
 
         # 4. Build final result from log
         done_count = sum(1 for e in log if e["type"] == "plan_step" and e["data"].get("status") == "done")
@@ -1000,6 +1373,17 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
         raw_output = "\n".join(
             e["data"].get("output", "") for e in log
             if e["type"] == "plan_step" and e["data"].get("status") in ("done", "failed") and e["data"].get("output")
+        )
+
+        from ops_assistant.tools.terminal_fallback import TerminalFallbackDetector
+        all_plan_cmds = [s.get("command", "") for s in plan_steps if s.get("command")]
+        plan_fallback = TerminalFallbackDetector.build_fallback_payload(
+            command_or_commands=all_plan_cmds,
+            returncode=0 if fail_count == 0 else 1,
+            stdout=raw_output if fail_count == 0 else "",
+            stderr=raw_output if fail_count > 0 else "",
+            cwd=active_cwd,
+            force_fallback=(fail_count > 0)
         )
 
         if not plan_steps:
@@ -1021,7 +1405,9 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             "summary": summary,
             "raw_output": raw_output,
             "exit_code": 0 if success else 1,
+            "terminal_fallback": plan_fallback.to_dict()
         })
+
 
         # Sentinel to signal SSE client the stream is complete
         q.put(None)
