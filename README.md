@@ -169,6 +169,12 @@ OK (100% Pass Rate)
 
 ---
 
+## 👥 Contributors
+
+Maintained by the core development team and contributors.
+
+---
+
 ## 📜 License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
