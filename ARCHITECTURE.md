@@ -185,3 +185,9 @@ graph TD
 - **Energy VAD**: RMS-based real-time silence detection for hands-free auto-stop.
 - **Phonetic Normalization**: Lexical and phonetic normalizer correcting Linux sysadmin terminology across English, Hinglish, and regional accents.
 
+### 18. **Compound Intent Chaining & Self-Correction Engine (`ops_assistant.nlp.intent_chain`, `ops_assistant.explainer.self_correction`)**
+- **Compound Sentence Decomposition**: Splits multi-action natural language input into topologically sorted sequential commands.
+- **Fuzzy Intent Matching**: Resilient pattern parsing handling typos and colloquial sysadmin phrasing.
+- **Closed-Loop Self-Correction**: Intercepts nonzero exit codes and stderr streams during execution, looks up the failure signature in the 16-class taxonomy database, and dynamically synthesizes safe recovery actions.
+
+

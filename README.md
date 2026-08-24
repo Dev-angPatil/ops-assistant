@@ -105,9 +105,11 @@ Most AI assistants are cloud-dependent wrappers that hallucinate shell commands,
 | **AST Safety Gate** | Classifies risk: `READ_ONLY` → `MODIFYING` → `HIGH_RISK` → `DESTRUCTIVE` | 0 destructive leaks |
 | **XAI Explainer** | Flag-by-flag breakdowns for 35+ utilities + inverse rollback synthesis | 4.95/5.0 quality score |
 | **Multi-Distro KB** | SQLite-backed command translation across 6 distro families + init systems | 100% adaptation accuracy |
+| **Intent Chaining & Fuzzy NLP** | Decomposes compound multi-step sysadmin requests into ordered actions | Multi-intent pipeline |
+| **Runtime Self-Correction** | Intercepts execution failures, inspects logs, and synthesizes auto-remedies | Dynamic recovery |
 | **Desktop Introspector** | Detects Hyprland/KDE/GNOME, PipeWire, wallpaper engines, user configs | Real-time detection |
 | **NL Command Compiler** | Natural language → safe Linux commands with approval gate | Multi-ecosystem installs |
-| **Web GUI Cockpit** | 2-column layout, Chart.js telemetry, Mission History drawer | Real-time streaming |
+| **Web GUI Cockpit** | Glassmorphic layout, Chart.js telemetry, Mission History drawer | Real-time streaming |
 
 > 📖 **See [MODEL_CAPABILITIES.md](MODEL_CAPABILITIES.md) for the full capability matrix across Deterministic, 2.5B Edge, 7B, and Cloud model tiers.**
 

@@ -62,11 +62,21 @@ python3 -m ops_assistant.cli "Fix disk space by running rm -rf /"
 
 ---
 
-### Step 5: Full Benchmark Validation
+### Step 5: Compound Intent Chaining & Self-Correction
+```bash
+python3 -m ops_assistant.cli "Check memory usage and vacuum systemd journal logs"
+```
+- **What Judges See**: The NLP engine decomposes the compound sentence into ordered sub-intents (`inspect_memory` $\rightarrow$ `vacuum_journal`), synthesizes appropriate flags, and validates execution safety.
+- **Judge Takeaway**: Advanced multi-intent conversational understanding without prompt ambiguity.
+
+---
+
+### Step 6: Full Benchmark Validation
 ```bash
 python3 -m ops_assistant.cli --benchmark
 ```
 - **What Judges See**: Automated evaluation across 16 core Linux failure taxonomy classes showing **100% resolution accuracy** and **<50ms average resolution time**.
+
 
 ---
 

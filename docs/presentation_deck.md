@@ -120,6 +120,7 @@
   3. Kernel OOM Killer (`oom-killer`) diagnosis with PID isolation.
   4. Multi-distro command adaptation (Debian `apt` vs. Arch `pacman` vs. Alpine `apk/OpenRC` vs. RHEL `dnf/firewalld` vs. BOSS Linux `apt/ufw`).
   5. Destructive command prevention (`rm -rf /` hard-blocked by Safety Gate).
+  6. Compound multi-step intent chaining and runtime self-correction with adaptive remediation.
 - **Roadmap & Expansion**:
   - eBPF kernel tracepoint hooks for sub-millisecond socket collision detection.
   - Native integration with Indian sovereign Linux distributions (BOSS Linux / C-DAC ecosystem).

@@ -24,6 +24,7 @@ To develop an autonomous, explainable AI-native operations copilot for Linux ser
 5. Dynamically adapts suggested commands, firewall rules, and package manager workflows across Debian/Ubuntu, RHEL/Rocky/Fedora, Arch Linux, Alpine Linux, openSUSE, and BOSS Linux.
 6. Delivers step-by-step Explainable AI (XAI) command deconstructions, flag-by-flag purpose explanations, risk scoring (0.0 to 1.0), and automatic rollback/undo plan generation.
 7. Validates remediation commands inside ephemeral `unshare` (User+Mount+PID) rootless namespace sandbox probes with POSIX syntax validation fallback before presenting them to the operator.
+8. Chains compound multi-step operational intents and executes runtime self-correction by dynamically parsing command exit codes, error stderr, and proposing adaptive recovery actions.
 
 ---
 
@@ -36,7 +37,7 @@ To develop an autonomous, explainable AI-native operations copilot for Linux ser
 ---
 
 ### Field 4: Novelty
-Relative to existing sysadmin utilities and generic cloud LLM chatbots, `ops-assistant` introduces six key architectural innovations:
+Relative to existing sysadmin utilities and generic cloud LLM chatbots, `ops-assistant` introduces seven key architectural innovations:
 
 1. **Dynamic System Causality DAG Engine**:
    Rather than flat log parsing, `ops-assistant` constructs a temporal Directed Acyclic Graph $G=(V, E)$ modeling failure propagation across system subsystems. It isolates the true root cause node with $\text{InDegree}(u) = 0$, distinguishing originating faults from secondary downstream symptoms (e.g. `OOM_KILL` $\rightarrow$ `SOCKET_CLOSED` $\rightarrow$ `UPSTREAM_502`).
@@ -55,6 +56,9 @@ Relative to existing sysadmin utilities and generic cloud LLM chatbots, `ops-ass
 
 6. **Fine-Grained XAI Command Flag Deconstruction & Rollbacks**:
    Tokenizes and decomposes command flags into plain English across 35+ utilities and synthesizes inverse rollback scripts (`systemctl start <-> stop`, `ufw allow <-> delete allow`).
+
+7. **Compound Intent Chaining & Dynamic Self-Correction**:
+   Decomposes complex compound natural language sentences into sequentially chained sub-intents with automatic runtime error interception and adaptive remediation synthesis.
 
 ---
 
@@ -215,3 +219,4 @@ graph TD
 4. **Multi-Distro Knowledge Base**: Dynamic command synthesis for Debian, RHEL, Arch, Alpine, openSUSE, and BOSS Linux.
 5. **Explainable AI (XAI) Flag Dissection**: Tokenizes and decomposes command flags into plain English across 35+ utilities.
 6. **Air-Gapped Privacy & Speed**: Operates completely offline with sub-50ms latency (45.2ms average).
+7. **Compound Intent Chaining & Dynamic Self-Correction**: Automatically decomposes multi-action user prompts and performs closed-loop error remediation upon execution failures.
