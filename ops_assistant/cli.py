@@ -1757,39 +1757,59 @@ def render_action_proposal(
         else:
             print(res["stderr"])
 
-    # Interactive self-healing for lock conflicts (pacman db.lck or dpkg lock)
+    # Autonomous Self-Correction & Reflection Loop for stderr recovery
     if rc != 0:
-        err_text = (res.get("stderr", "") + " " + res.get("stdout", "")).lower()
-        if "db.lck" in err_text or "could not lock database" in err_text:
-            if os.path.exists("/var/lib/pacman/db.lck"):
-                import subprocess as _sp
-                chk = _sp.run("pgrep -x pacman || pgrep -x yay", shell=True, capture_output=True, text=True)
-                if not chk.stdout.strip():
-                    try:
-                        fix_ans = input("\n💡 Stale pacman database lock detected (/var/lib/pacman/db.lck). Remove lock and retry? [Y/n]: ").strip().lower()
-                        if fix_ans in ("y", "yes", ""):
-                            if HAS_RICH and console:
-                                console.print("[bold cyan]▶ Removing stale lock:[/bold cyan] [yellow]sudo rm -f /var/lib/pacman/db.lck[/yellow]")
-                            else:
-                                print("▶ Removing stale lock: sudo rm -f /var/lib/pacman/db.lck")
-                            executor.execute("sudo rm -f /var/lib/pacman/db.lck")
-                            if HAS_RICH and console:
-                                console.print("[bold green]✓ Lock removed! Retrying command...[/bold green]")
-                                console.print(f"[bold cyan]▶ Executing:[/bold cyan] [yellow]{cmd}[/yellow]")
-                            else:
-                                print("✓ Lock removed! Retrying command...")
-                                print(f"▶ Executing: {cmd}")
-                            res = executor.execute(cmd, rollback_cmd=rollback)
-                            rc = res.get("returncode", -1)
-                            if res.get("stdout"):
-                                print(res["stdout"])
-                            if res.get("stderr") and rc != 0:
-                                if HAS_RICH and console:
-                                    console.print(f"[red]{res['stderr']}[/red]")
-                                else:
-                                    print(res["stderr"])
-                    except (KeyboardInterrupt, EOFError):
-                        pass
+        from ops_assistant.explainer.self_correction import SelfCorrectionEngine
+        sc_engine = SelfCorrectionEngine()
+        llm_prov = getattr(agent, "llm_provider", None) if agent else None
+        ref_rec = sc_engine.reflect(
+            command=cmd,
+            returncode=rc,
+            stdout=res.get("stdout", ""),
+            stderr=res.get("stderr", ""),
+            llm_provider=llm_prov
+        )
+
+        if ref_rec.can_recover and (ref_rec.corrected_command or ref_rec.prerequisite_command):
+            target_fix = ref_rec.corrected_command or ref_rec.prerequisite_command
+            if HAS_RICH and console:
+                console.print(Panel(
+                    f"[bold yellow]Diagnosis:[/bold yellow] {ref_rec.reflection}\n\n"
+                    f"[bold cyan]💡 Self-Corrected Action:[/bold cyan] [yellow]{target_fix}[/yellow]",
+                    title="[bold yellow]🔥 Autonomous Self-Correction & Reflection Loop[/bold yellow]",
+                    border_style="yellow"
+                ))
+            else:
+                print("\n" + "=" * 60)
+                print("🔥 AUTONOMOUS SELF-CORRECTION & REFLECTION LOOP")
+                print(f"  Diagnosis: {ref_rec.reflection}")
+                print(f"  💡 Proposed Fix: {target_fix}")
+                print("=" * 60 + "\n")
+
+            try:
+                sc_ans = input("💡 Attempt autonomous self-corrected recovery? [Y/n]: ").strip().lower()
+                if sc_ans in ("y", "yes", ""):
+                    if HAS_RICH and console:
+                        console.print(f"[bold cyan]▶ Executing Self-Correction Loop...[/bold cyan]")
+                    else:
+                        print("▶ Executing Self-Correction Loop...")
+
+                    res = executor.execute_with_reflection(
+                        command_str=cmd,
+                        max_retries=3,
+                        rollback_cmd=rollback,
+                        llm_provider=llm_prov
+                    )
+                    rc = res.get("returncode", -1)
+                    if res.get("stdout"):
+                        print(res["stdout"])
+                    if res.get("stderr") and rc != 0:
+                        if HAS_RICH and console:
+                            console.print(f"[red]{res['stderr']}[/red]")
+                        else:
+                            print(res["stderr"])
+            except (KeyboardInterrupt, EOFError):
+                pass
 
     if rc == 0:
         if HAS_RICH and console:
@@ -2107,6 +2127,10 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
                 _q = "run: " + query[1:].strip()
 
             intent = router.classify(_q)
+            if intent.corrections:
+                reps_str = ", ".join([f'"{old}" → "{new}"' for old, new in intent.corrections])
+                _cprint(f"[dim cyan]ℹ Spell corrected: {reps_str} (resolving as \"{intent.corrected_query}\")[/dim cyan]",
+                        f"ℹ Spell corrected: {reps_str} (resolving as \"{intent.corrected_query}\")")
 
             # -----------------------------------------------------------------
             # Meta / assistant commands
@@ -2120,6 +2144,20 @@ def run_repl(agent: OpsAssistantAgent, executor: SafeExecutor, distro_override: 
 
             elif intent.type == IntentType.CLEAR:
                 os.system("clear" if os.name == "posix" else "cls")
+
+            elif _ql in (":reload", ":restart", ":r", "reload", "restart"):
+                import sys as _sys, importlib as _implib
+                _cprint("[bold cyan]🔄 Reloading ops-assistant modules from disk...[/bold cyan]", "🔄 Reloading ops-assistant modules from disk...")
+                for mod_name in list(_sys.modules.keys()):
+                    if mod_name.startswith("ops_assistant"):
+                        try:
+                            _implib.reload(_sys.modules[mod_name])
+                        except Exception:
+                            pass
+                from ops_assistant.tools.executor import SafeExecutor as _SE
+                executor = _SE()
+                _cprint("[bold green]✓ All modules and settings reloaded successfully.[/bold green]", "✓ All modules and settings reloaded successfully.")
+                continue
 
             elif intent.type == IntentType.HEALTH:
                 render_health_dashboard(agent.hub, distro_override=active_distro)

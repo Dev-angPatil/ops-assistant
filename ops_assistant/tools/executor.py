@@ -249,5 +249,32 @@ class SafeExecutor:
             return self.execute(rollback_cmd)
         return self.rollback_last()
 
+    def execute_with_reflection(
+        self,
+        command_str: str,
+        max_retries: int = 3,
+        dry_run: bool = False,
+        allow_destructive: bool = False,
+        rollback_cmd: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        llm_provider: Optional[Any] = None,
+        callback: Optional[Any] = None
+    ) -> Dict[str, Any]:
+        """Executes a command with autonomous Self-Correction & Reflection error recovery loop."""
+        from ops_assistant.explainer.self_correction import SelfCorrectionEngine
+        engine = SelfCorrectionEngine()
+        return engine.execute_with_reflection(
+            executor=self,
+            command_str=command_str,
+            max_retries=max_retries,
+            dry_run=dry_run,
+            allow_destructive=allow_destructive,
+            rollback_cmd=rollback_cmd,
+            context=context,
+            llm_provider=llm_provider,
+            callback=callback
+        )
+
+
 
 

@@ -669,7 +669,11 @@ class OpsAssistantHandler(BaseHTTPRequestHandler):
             probe = EphemeralSandboxProbe()
             probe_result = probe.verify_command(command)
 
-            res = self.executor.execute(command, dry_run=dry_run)
+            res = self.executor.execute_with_reflection(
+                command_str=command,
+                dry_run=dry_run,
+                llm_provider=getattr(self.agent, "llm_provider", None) if self.agent else None
+            )
             returncode = res.get("returncode", -1)
 
             # Generate comprehensive natural language outcome and system changes explanation
